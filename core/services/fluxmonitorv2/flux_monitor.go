@@ -359,6 +359,7 @@ func (fm *FluxMonitor) consume() {
 			flux_aggregator_wrapper.FluxAggregatorNewRound{},
 			flux_aggregator_wrapper.FluxAggregatorAnswerUpdated{},
 		},
+		NumConfirmations: 1,
 	})
 	defer unsubscribe()
 
@@ -369,6 +370,7 @@ func (fm *FluxMonitor) consume() {
 				flags_wrapper.FlagsFlagLowered{},
 				flags_wrapper.FlagsFlagRaised{},
 			},
+			NumConfirmations: 1,
 		})
 		isConnected = isConnected && flagsConnected
 		defer unsubscribe()
