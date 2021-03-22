@@ -19,6 +19,7 @@ type LogController struct {
 
 type LogPatchRequest struct {
 	Level      string `json:"level"`
+	Filter     string `json:"filter"`
 	SqlEnabled *bool  `json:"sqlEnabled"`
 }
 
@@ -30,8 +31,8 @@ func (cc *LogController) Patch(c *gin.Context) {
 		return
 	}
 
-	if request.Level == "" && request.SqlEnabled == nil {
-		jsonAPIError(c, http.StatusInternalServerError, fmt.Errorf("please set either logLevel or logSql as params in order to set the log level"))
+	if request.Level == "" && request.Filter == "" && request.SqlEnabled == nil {
+		jsonAPIError(c, http.StatusInternalServerError, fmt.Errorf("please set either logLevel, logFilter, or logSql as params in order to set the log level"))
 		return
 	}
 
@@ -44,6 +45,15 @@ func (cc *LogController) Patch(c *gin.Context) {
 		}
 		cc.App.GetStore().Config.Set("LOG_LEVEL", ll.String())
 		err = cc.App.GetStore().SetConfigStrValue("LogLevel", ll.String())
+		if err != nil {
+			jsonAPIError(c, http.StatusInternalServerError, err)
+			return
+		}
+	}
+
+	if request.Filter != "" {
+		cc.App.GetStore().Config.Set("LOG_FILTER", request.Filter)
+		err := cc.App.GetStore().SetConfigStrValue("LogFilter", request.Filter)
 		if err != nil {
 			jsonAPIError(c, http.StatusInternalServerError, err)
 			return
@@ -68,6 +78,7 @@ func (cc *LogController) Patch(c *gin.Context) {
 			ID: "log",
 		},
 		Level:      cc.App.GetStore().Config.LogLevel().String(),
+		Filter:     cc.App.GetStore().Config.LogFilter(),
 		SqlEnabled: cc.App.GetStore().Config.LogSQLStatements(),
 	}
 

@@ -102,6 +102,7 @@ func (rt RendererTable) renderLogResource(logResource webPresenters.LogResource)
 	table.Append([]string{
 		logResource.ID,
 		logResource.Level,
+		logResource.Filter,
 		strconv.FormatBool(logResource.SqlEnabled),
 	})
 	render("Logs", table)

@@ -772,9 +772,9 @@ func (c Config) LogLevel() LogLevel {
 	return c.getWithFallback("LogLevel", parseLogLevel).(LogLevel)
 }
 
-// LogFiltering configures detailed filtering of logs.
-func (c Config) LogFiltering() string {
-	return c.viper.GetString(EnvVarName("LogFiltering"))
+// LogFilter configures detailed filtering of logs.
+func (c Config) LogFilter() string {
+	return c.viper.GetString(EnvVarName("LogFilter"))
 }
 
 // LogToDisk configures disk preservation of logs.
@@ -993,7 +993,7 @@ func (c Config) HeadTimeBudget() time.Duration {
 // directory and LogLevel, with pretty printing for stdout. If LOG_TO_DISK is
 // false, the logger will only log to stdout.
 func (c Config) CreateProductionLogger() *logger.Logger {
-	return logger.CreateProductionLogger(c.RootDir(), c.JSONConsole(), c.LogLevel().Level, c.LogToDisk(), c.LogFiltering())
+	return logger.CreateProductionLogger(c.RootDir(), c.JSONConsole(), c.LogLevel().Level, c.LogToDisk(), c.LogFilter())
 }
 
 // SessionSecret returns a sequence of bytes to be used as a private key for

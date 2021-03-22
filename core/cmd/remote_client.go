@@ -1254,6 +1254,35 @@ func (cli *Client) SetLogSQL(c *clipkg.Context) (err error) {
 	return err
 }
 
+// SetLogFilter sets the package log filter on the node
+func (cli *Client) SetLogFilter(c *clipkg.Context) (err error) {
+	if !c.Bool("filter") {
+		return cli.errorOut(errors.New("expecting a comma separated list of filter values (ex: gas_updater:debug,flux_monitor:warn,offchain_reporting:error,vfr:debug"))
+	}
+
+	filter := c.Args().Get(0)
+	request := web.LogPatchRequest{Filter: filter}
+	requestData, err := json.Marshal(request)
+	if err != nil {
+		return cli.errorOut(err)
+	}
+
+	buf := bytes.NewBuffer(requestData)
+	resp, err := cli.HTTP.Patch("/v2/log", buf)
+	if err != nil {
+		return cli.errorOut(errors.Wrap(err, "from toggling debug logging"))
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			err = multierr.Append(err, cerr)
+		}
+	}()
+
+	var lR webPresenter.LogResource
+	err = cli.renderAPIResponse(resp, &lR)
+	return err
+}
+
 func getBufferFromJSON(s string) (*bytes.Buffer, error) {
 	if gjson.Valid(s) {
 		return bytes.NewBufferString(s), nil

@@ -159,6 +159,17 @@ func NewApp(client *Client) *cli.App {
 					},
 				},
 				{
+					Name:   "logfilter",
+					Usage:  "Set package specific logging",
+					Action: client.SetLogFilter,
+					Flags: []cli.Flag{
+						cli.BoolFlag{
+							Name:  "filter",
+							Usage: "set log filter for package specfic logging",
+						},
+					},
+				},
+				{
 					Name:   "logsql",
 					Usage:  "Enable/disable sql statement logging",
 					Action: client.SetLogSQL,
