@@ -28,6 +28,8 @@ type ORM interface {
 	CreateSpec(ctx context.Context, db *gorm.DB, taskDAG TaskDAG, maxTaskTimeout models.Interval) (int32, error)
 	InsertFinishedRunWithResults(ctx context.Context, run Run, trrs []TaskRunResult) (runID int64, err error)
 	DeleteRunsOlderThan(threshold time.Duration) error
+	CancelRunByRequestID(int32, [32]byte) error
+
 	FindBridge(name models.TaskType) (models.BridgeType, error)
 	FindRun(id int64) (Run, error)
 	DB() *gorm.DB
@@ -401,11 +403,27 @@ func (o *orm) RunFinished(runID int64) (bool, error) {
 }
 
 func (o *orm) DeleteRunsOlderThan(threshold time.Duration) error {
-	err := o.db.Exec(`DELETE FROM pipeline_runs WHERE finished_at < ?`, time.Now().Add(-threshold)).Error
+	err := o.db.Exec(``, time.Now().Add(-threshold)).Error
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+func (o *orm) CancelRunByRequestID(jobID int32, requestID [32]byte) error {
+	return o.db.Exec(`
+DELETE FROM pipeline_runs
+WHERE id IN (
+	SELECT pipeline_runs.id
+	FROM pipeline_runs
+	INNER JOIN pipeline_task_runs
+	ON pipeline_task_runs.pipeline_run_id = pipeline_runs.id
+	WHERE pipeline_spec_id = ?
+		AND pipeline_runs.meta->'oracleRequest'->>'requestId' = ?
+		AND pipeline_task_runs.finished_at IS NULL
+	FOR UPDATE OF pipeline_task_runs
+	SKIP LOCKED
+)`, jobID, fmt.Sprintf("0x%x", requestID)).Error
 }
 
 func (o *orm) FindBridge(name models.TaskType) (models.BridgeType, error) {
