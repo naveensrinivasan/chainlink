@@ -113,5 +113,5 @@ func TestLogController_SetLogFilter(t *testing.T) {
 	lR := presenters.LogResource{}
 	require.NoError(t, cltest.ParseJSONAPIResponse(t, resp, &lR))
 	assert.Equal(t, logFilterStr, lR.Filter)
-	assert.Equal(t, logFilterStr, app.GetStore().Config.LogLevel().String())
+	assert.Equal(t, logFilterStr, app.GetStore().Config.LogFilter())
 }
