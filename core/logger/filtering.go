@@ -21,9 +21,8 @@ func (settings logFilteringSettings) Enabled(ent zapcore.Entry) bool {
 	serviceLevel, exists := settings.serviceLevels[ent.LoggerName]
 	if exists {
 		return serviceLevel.Enabled(ent.Level)
-	} else {
-		return true
 	}
+	return true
 }
 
 type filteringCore struct {
