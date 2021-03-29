@@ -111,9 +111,6 @@ func (c *Config) Validate() error {
 			ethCore.DefaultTxPoolConfig.PriceBump,
 		)
 	}
-	if c.EthGasBumpWei().Cmp(big.NewInt(1000000000)) < 0 {
-		return errors.Errorf("ETH_GAS_BUMP_WEI of %s Wei may not be less than the minimum allowed value of 5 GWei", c.EthGasBumpWei().String())
-	}
 
 	if c.EthHeadTrackerHistoryDepth() < c.EthFinalityDepth() {
 		return errors.New("ETH_HEAD_TRACKER_HISTORY_DEPTH must be equal to or greater than ETH_FINALITY_DEPTH")
@@ -485,6 +482,16 @@ func (c Config) EthHeadTrackerHistoryDepth() uint {
 // for the head tracker before we start dropping heads to keep up.
 func (c Config) EthHeadTrackerMaxBufferSize() uint {
 	return uint(c.getWithFallback("EthHeadTrackerMaxBufferSize", parseUint64).(uint64))
+}
+
+// EthTxResendAfterThreshold controls how long the ethResender will wait before
+// re-sending the latest eth_tx_attempt. This is designed a as a fallback to
+// protect against the eth nodes dropping txes (it has been anecdotally
+// observed to happen), networking issues or txes being ejected from the
+// mempool.
+// See eth_resender.go for more details
+func (c Config) EthTxResendAfterThreshold() time.Duration {
+	return c.getWithFallback("EthTxResendAfterThreshold", parseDuration).(time.Duration)
 }
 
 // EthereumURL represents the URL of the Ethereum node to connect Chainlink to.
