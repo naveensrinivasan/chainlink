@@ -61,7 +61,7 @@ func (nc *NullClient) CallContext(ctx context.Context, result interface{}, metho
 
 func (nc *NullClient) HeaderByNumber(ctx context.Context, n *big.Int) (*models.Head, error) {
 	logger.Debug("NullClient#HeaderByNumber")
-	return nil, nil
+	return &models.Head{}, nil
 }
 
 type nullSubscription struct{}
@@ -150,5 +150,9 @@ func (nc *NullClient) CodeAt(ctx context.Context, account common.Address, blockN
 }
 
 func (nc *NullClient) BatchCallContext(ctx context.Context, b []rpc.BatchElem) error {
+	return nil
+}
+
+func (nc *NullClient) RoundRobinBatchCallContext(ctx context.Context, b []rpc.BatchElem) error {
 	return nil
 }

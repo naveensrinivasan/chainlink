@@ -6,12 +6,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgtype"
+	"github.com/onsi/gomega"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/smartcontractkit/chainlink/core/services/eth"
 	"github.com/smartcontractkit/chainlink/core/store/models"
 
-	"github.com/onsi/gomega"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -37,7 +37,7 @@ func (d delegate) JobType() job.Type {
 	return d.jobType
 }
 
-func (d delegate) ServicesForSpec(js job.SpecDB) ([]job.Service, error) {
+func (d delegate) ServicesForSpec(js job.Job) ([]job.Service, error) {
 	if js.Type != d.jobType {
 		return nil, nil
 	}
@@ -45,7 +45,7 @@ func (d delegate) ServicesForSpec(js job.SpecDB) ([]job.Service, error) {
 }
 
 func clearDB(t *testing.T, db *gorm.DB) {
-	err := db.Exec(`TRUNCATE jobs, pipeline_runs, pipeline_specs, pipeline_task_runs, pipeline_task_specs CASCADE`).Error
+	err := db.Exec(`TRUNCATE jobs, pipeline_runs, pipeline_specs, pipeline_task_runs CASCADE`).Error
 	require.NoError(t, err)
 }
 
@@ -63,6 +63,10 @@ func TestSpawner_CreateJobDeleteJob(t *testing.T) {
 
 	key := cltest.MustInsertRandomKey(t, db)
 	address := key.Address.Address()
+	_, bridge := cltest.NewBridgeType(t, "voter_turnout", "http://blah.com")
+	require.NoError(t, db.Create(bridge).Error)
+	_, bridge2 := cltest.NewBridgeType(t, "election_winner", "http://blah.com")
+	require.NoError(t, db.Create(bridge2).Error)
 
 	rpc, geth, _, _ := cltest.NewEthMocks(t)
 	rpc.On("CallContext", mock.Anything, mock.Anything, "eth_getBlockByNumber", mock.Anything, false).
@@ -132,6 +136,8 @@ func TestSpawner_CreateJobDeleteJob(t *testing.T) {
 		serviceB2.AssertExpectations(t)
 	})
 
+	clearDB(t, db)
+
 	t.Run("starts job services from the DB when .Start() is called", func(t *testing.T) {
 		jobSpecA := makeOCRJobSpec(t, address)
 		jobSpecA.Type = jobTypeA
@@ -156,12 +162,14 @@ func TestSpawner_CreateJobDeleteJob(t *testing.T) {
 		spawner.Start()
 		defer spawner.Close()
 
-		eventually.AwaitOrFail(t, 10*time.Second)
+		eventually.AwaitOrFail(t)
 		mock.AssertExpectationsForObjects(t, serviceA1, serviceA2)
 
 		serviceA1.On("Close").Return(nil).Once()
 		serviceA2.On("Close").Return(nil).Once()
 	})
+
+	clearDB(t, db)
 
 	t.Run("stops job services when .Stop() is called", func(t *testing.T) {
 		jobSpecA := makeOCRJobSpec(t, address)
@@ -170,9 +178,6 @@ func TestSpawner_CreateJobDeleteJob(t *testing.T) {
 		eventually := cltest.NewAwaiter()
 		serviceA1 := new(mocks.Service)
 		serviceA2 := new(mocks.Service)
-		serviceA1.On("Start").Return(nil).Once()
-		serviceA2.On("Start").Return(nil).Once().Run(func(mock.Arguments) { eventually.ItHappened() })
-
 		orm := job.NewORM(db, config.Config, pipeline.NewORM(db, config, eventBroadcaster), eventBroadcaster, &postgres.NullAdvisoryLocker{})
 		defer orm.Close()
 		delegateA := &delegate{jobTypeA, []job.Service{serviceA1, serviceA2}, 0, nil, offchainreporting.NewDelegate(nil, orm, nil, nil, nil, eth.NewClientWith(rpc, geth), nil, nil, monitoringEndpoint)}
@@ -180,13 +185,15 @@ func TestSpawner_CreateJobDeleteJob(t *testing.T) {
 			jobTypeA: delegateA,
 		})
 
+		serviceA1.On("Start").Return(nil).Once()
+		serviceA2.On("Start").Return(nil).Once().Run(func(mock.Arguments) { eventually.ItHappened() })
 		jobSpecIDA, err := spawner.CreateJob(context.Background(), *jobSpecA, null.String{})
 		require.NoError(t, err)
 		delegateA.jobID = jobSpecIDA
 
 		spawner.Start()
 
-		eventually.AwaitOrFail(t, 10*time.Second)
+		eventually.AwaitOrFail(t)
 		mock.AssertExpectationsForObjects(t, serviceA1, serviceA2)
 
 		serviceA1.On("Close").Return(nil).Once()
@@ -223,7 +230,7 @@ func TestSpawner_CreateJobDeleteJob(t *testing.T) {
 		spawner.Start()
 		defer spawner.Close()
 
-		eventuallyStart.AwaitOrFail(t, 10*time.Second)
+		eventuallyStart.AwaitOrFail(t)
 
 		advisoryLockClassID := job.GetORMAdvisoryLockClassID(orm)
 
@@ -244,7 +251,7 @@ func TestSpawner_CreateJobDeleteJob(t *testing.T) {
 
 		require.NoError(t, db.Exec(`DELETE FROM jobs WHERE id = ?`, jobSpecIDA).Error)
 
-		eventuallyClose.AwaitOrFail(t, 10*time.Second)
+		eventuallyClose.AwaitOrFail(t)
 
 		// Wait for the claim lock to be released
 		gomega.NewGomegaWithT(t).Eventually(func() int {

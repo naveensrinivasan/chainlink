@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -89,6 +88,8 @@ func TestIntegration_Scheduler(t *testing.T) {
 func TestIntegration_HttpRequestWithHeaders(t *testing.T) {
 	config, cfgCleanup := cltest.NewConfig(t)
 	defer cfgCleanup()
+	config.Set("ADMIN_CREDENTIALS_FILE", "")
+	config.Set("ETH_HEAD_TRACKER_MAX_BUFFER_SIZE", 99)
 
 	rpcClient, gethClient, sub, assertMocksCalled := cltest.NewEthMocks(t)
 	defer assertMocksCalled()
@@ -127,8 +128,8 @@ func TestIntegration_HttpRequestWithHeaders(t *testing.T) {
 		Return(nil)
 
 	gethClient.On("ChainID", mock.Anything).Return(config.ChainID(), nil)
+	gethClient.On("PendingNonceAt", mock.Anything, mock.Anything).Maybe().Return(uint64(0), nil)
 	gethClient.On("BalanceAt", mock.Anything, mock.Anything, mock.Anything).Maybe().Return(oneETH.ToInt(), nil)
-	gethClient.On("BlockByNumber", mock.Anything, big.NewInt(inLongestChain)).Return(cltest.BlockWithTransactions(), nil)
 
 	gethClient.On("SendTransaction", mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
@@ -186,6 +187,7 @@ func TestIntegration_RunAt(t *testing.T) {
 
 func TestIntegration_EthLog(t *testing.T) {
 	t.Parallel()
+
 	rpcClient, gethClient, sub, assertMockCalls := cltest.NewEthMocks(t)
 	defer assertMockCalls()
 	app, cleanup := cltest.NewApplication(t,
@@ -297,7 +299,6 @@ func TestIntegration_RunLog(t *testing.T) {
 				BlockHash:   test.receiptBlockHash,
 				BlockNumber: big.NewInt(creationHeight),
 			}
-			gethClient.On("BlockByNumber", mock.Anything, mock.Anything).Return(&types.Block{}, nil)
 
 			gethClient.On("TransactionReceipt", mock.Anything, mock.Anything).
 				Return(confirmedReceipt, nil)
@@ -331,6 +332,7 @@ func TestIntegration_StartAt(t *testing.T) {
 
 func TestIntegration_ExternalAdapter_RunLogInitiated(t *testing.T) {
 	t.Parallel()
+
 	rpcClient, gethClient, sub, assertMockCalls := cltest.NewEthMocks(t)
 	defer assertMockCalls()
 	app, cleanup := cltest.NewApplication(t,
@@ -368,9 +370,6 @@ func TestIntegration_ExternalAdapter_RunLogInitiated(t *testing.T) {
 	jr := cltest.WaitForRuns(t, j, app.Store, 1)[0]
 	cltest.WaitForJobRunToPendIncomingConfirmations(t, app.Store, jr)
 
-	gethClient.On("BlockByNumber", mock.Anything, mock.Anything).Return(types.NewBlockWithHeader(&types.Header{
-		Number: big.NewInt(int64(logBlockNumber + 8)),
-	}), nil) // Gas updater checks the block by number.
 	newHeads := <-newHeadsCh
 	newHeads <- cltest.Head(logBlockNumber + 8)
 	cltest.WaitForJobRunToPendIncomingConfirmations(t, app.Store, jr)
@@ -541,6 +540,8 @@ func TestIntegration_WeiWatchers(t *testing.T) {
 }
 
 func TestIntegration_MultiplierInt256(t *testing.T) {
+	t.Parallel()
+
 	rpcClient, gethClient, _, assertMockCalls := cltest.NewEthMocksWithStartupAssertions(t)
 	defer assertMockCalls()
 	app, cleanup := cltest.NewApplication(t,
@@ -558,6 +559,8 @@ func TestIntegration_MultiplierInt256(t *testing.T) {
 }
 
 func TestIntegration_MultiplierUint256(t *testing.T) {
+	t.Parallel()
+
 	rpcClient, gethClient, _, assertMockCalls := cltest.NewEthMocksWithStartupAssertions(t)
 	defer assertMockCalls()
 	app, cleanup := cltest.NewApplication(t,
@@ -576,6 +579,7 @@ func TestIntegration_MultiplierUint256(t *testing.T) {
 
 func TestIntegration_SyncJobRuns(t *testing.T) {
 	t.Parallel()
+
 	wsserver, wsserverCleanup := cltest.NewEventWebSocketServer(t)
 	defer wsserverCleanup()
 
@@ -741,6 +745,8 @@ func TestIntegration_ExternalInitiator_WithoutURL(t *testing.T) {
 }
 
 func TestIntegration_AuthToken(t *testing.T) {
+	t.Parallel()
+
 	rpcClient, gethClient, _, assertMockCalls := cltest.NewEthMocksWithStartupAssertions(t)
 	defer assertMockCalls()
 	app, cleanup := cltest.NewApplication(t,
@@ -793,6 +799,7 @@ func TestIntegration_FluxMonitor_Deviation(t *testing.T) {
 	sub.On("Err").Return(nil).Maybe()
 	sub.On("Unsubscribe").Return(nil).Maybe()
 	gethClient.On("ChainID", mock.Anything).Return(app.Store.Config.ChainID(), nil)
+	gethClient.On("PendingNonceAt", mock.Anything, mock.Anything).Maybe().Return(uint64(0), nil)
 	gethClient.On("BalanceAt", mock.Anything, mock.Anything, mock.Anything).Maybe().Return(oneETH.ToInt(), nil)
 	newHeads := make(chan<- *models.Head, 1)
 	rpcClient.On("EthSubscribe", mock.Anything, mock.Anything, "newHeads").
@@ -813,6 +820,11 @@ func TestIntegration_FluxMonitor_Deviation(t *testing.T) {
 		Return(cltest.MustGenericEncode([]string{"uint256"}, big.NewInt(0)), nil).Once()
 	cltest.MockFluxAggCall(gethClient, cltest.FluxAggAddress, "maxSubmissionValue").
 		Return(cltest.MustGenericEncode([]string{"uint256"}, big.NewInt(10000000)), nil).Once()
+	cltest.MockFluxAggCall(gethClient, cltest.FluxAggAddress, "latestRoundData").
+		Return(cltest.MustGenericEncode(
+			[]string{"uint80", "int256", "uint256", "uint256", "uint80"},
+			big.NewInt(2), big.NewInt(1), big.NewInt(1), big.NewInt(1), big.NewInt(1),
+		), nil).Maybe() // Called 3-4 times.
 
 	// Configure fake Eth Node to return 10,000 cents when FM initiates price.
 	minPayment := app.Store.Config.MinimumContractPayment().ToInt().Uint64()
@@ -823,15 +835,6 @@ func TestIntegration_FluxMonitor_Deviation(t *testing.T) {
 	require.NoError(t, err)
 	cltest.MockFluxAggCall(gethClient, cltest.FluxAggAddress, "getOracles").
 		Return(getOraclesResult, nil).Once()
-
-	// latestRoundData()
-	lrdTypes := []string{"uint80", "int256", "uint256", "uint256", "uint80"}
-	latestRoundDataResult, err := cltest.GenericEncode(
-		lrdTypes, big.NewInt(2), big.NewInt(1), big.NewInt(1), big.NewInt(1), big.NewInt(1),
-	)
-	require.NoError(t, err)
-	cltest.MockFluxAggCall(gethClient, cltest.FluxAggAddress, "latestRoundData").
-		Return(latestRoundDataResult, nil).Once()
 
 	// oracleRoundState()
 	result := cltest.MakeRoundStateReturnData(2, true, 10000, 7, 0, availableFunds, minPayment, 1)
@@ -871,8 +874,6 @@ func TestIntegration_FluxMonitor_Deviation(t *testing.T) {
 			*head = cltest.Head(inLongestChain)
 		}).
 		Return(nil)
-
-	gethClient.On("BlockByNumber", mock.Anything, big.NewInt(inLongestChain)).Return(cltest.BlockWithTransactions(), nil)
 
 	// Create FM Job, and wait for job run to start because the above criteria initiates a run.
 	buffer := cltest.MustReadFile(t, "testdata/flux_monitor_job.json")
@@ -930,18 +931,26 @@ func TestIntegration_FluxMonitor_NewRound(t *testing.T) {
 	availableFunds := minPayment * 100
 
 	// Start, connect, and initialize node
-	sub.On("Err").Return(nil)
-	sub.On("Unsubscribe").Return(nil).Maybe()
-	gethClient.On("ChainID", mock.Anything).Return(app.Store.Config.ChainID(), nil)
+	gethClient.On("ChainID", mock.Anything).Maybe().Return(app.Store.Config.ChainID(), nil)
+	gethClient.On("PendingNonceAt", mock.Anything, mock.Anything).Maybe().Return(uint64(0), nil)
 	gethClient.On("BalanceAt", mock.Anything, mock.Anything, mock.Anything).Maybe().Return(oneETH.ToInt(), nil)
+
 	newHeadsCh := make(chan chan<- *models.Head, 1)
+	rpcClientDone := cltest.NewAwaiter()
 	rpcClient.On("EthSubscribe", mock.Anything, mock.Anything, "newHeads").
-		Run(func(args mock.Arguments) { newHeadsCh <- args.Get(1).(chan<- *models.Head) }).
+		Run(func(args mock.Arguments) {
+			rpcClientDone.ItHappened()
+			newHeadsCh <- args.Get(1).(chan<- *models.Head)
+		}).
 		Return(sub, nil)
+
+	sub.On("Err").Maybe().Return(nil)
+	sub.On("Unsubscribe").Maybe().Return(nil)
 
 	err := app.StartAndConnect()
 	require.NoError(t, err)
 
+	rpcClientDone.AwaitOrFail(t)
 	gethClient.AssertExpectations(t)
 	rpcClient.AssertExpectations(t)
 	sub.AssertExpectations(t)
@@ -950,15 +959,18 @@ func TestIntegration_FluxMonitor_NewRound(t *testing.T) {
 		Return(cltest.MustGenericEncode([]string{"uint256"}, big.NewInt(0)), nil).Once()
 	cltest.MockFluxAggCall(gethClient, cltest.FluxAggAddress, "maxSubmissionValue").
 		Return(cltest.MustGenericEncode([]string{"uint256"}, big.NewInt(10000000)), nil).Once()
+	require.NoError(t, err)
+	cltest.MockFluxAggCall(gethClient, cltest.FluxAggAddress, "latestRoundData").
+		Return(cltest.MustGenericEncode(
+			[]string{"uint80", "int256", "uint256", "uint256", "uint80"},
+			big.NewInt(2), big.NewInt(1), big.NewInt(1), big.NewInt(1), big.NewInt(1),
+		), nil).Maybe() // Called 3-4 times.
 
 	// Configure fake Eth Node to return 10,000 cents when FM initiates price.
 	getOraclesResult, err := cltest.GenericEncode([]string{"address[]"}, []common.Address{})
 	require.NoError(t, err)
 	cltest.MockFluxAggCall(gethClient, cltest.FluxAggAddress, "getOracles").
 		Return(getOraclesResult, nil).Once()
-
-	cltest.MockFluxAggCall(gethClient, cltest.FluxAggAddress, "latestRoundData").
-		Return(nil, errors.New("first round")).Once()
 
 	result := cltest.MakeRoundStateReturnData(2, true, 10000, 7, 0, availableFunds, minPayment, 1)
 	cltest.MockFluxAggCall(gethClient, cltest.FluxAggAddress, "oracleRoundState").
@@ -1030,10 +1042,6 @@ func TestIntegration_FluxMonitor_NewRound(t *testing.T) {
 		}).
 		Return(nil)
 
-	gethClient.On("BlockByNumber", mock.Anything, mock.Anything).Return(types.NewBlockWithHeader(&types.Header{
-		Number: big.NewInt(int64(11)),
-	}), nil)
-
 	logs <- log
 
 	newHeads := <-newHeadsCh
@@ -1055,6 +1063,8 @@ func TestIntegration_FluxMonitor_NewRound(t *testing.T) {
 }
 
 func TestIntegration_MultiwordV1(t *testing.T) {
+	t.Parallel()
+
 	gethClient := new(mocks.GethClient)
 	rpcClient := new(mocks.RPCClient)
 	sub := new(mocks.Subscription)
@@ -1073,6 +1083,7 @@ func TestIntegration_MultiwordV1(t *testing.T) {
 	sub.On("Err").Return(nil)
 	sub.On("Unsubscribe").Return(nil).Maybe()
 	gethClient.On("ChainID", mock.Anything).Return(app.Store.Config.ChainID(), nil)
+	gethClient.On("PendingNonceAt", mock.Anything, mock.Anything).Maybe().Return(uint64(0), nil)
 	headsCh := make(chan chan<- *models.Head, 1)
 	rpcClient.On("EthSubscribe", mock.Anything, mock.Anything, "newHeads").
 		Run(func(args mock.Arguments) { headsCh <- args.Get(1).(chan<- *models.Head) }).
@@ -1105,9 +1116,6 @@ func TestIntegration_MultiwordV1(t *testing.T) {
 			*head = cltest.Head(inLongestChain)
 		}).
 		Return(nil)
-
-	gethClient.On("BlockByNumber", mock.Anything, big.NewInt(inLongestChain)).
-		Return(cltest.BlockWithTransactions(), nil)
 
 	err := app.StartAndConnect()
 	require.NoError(t, err)
@@ -1182,6 +1190,8 @@ func setupMultiWordContracts(t *testing.T) (*bind.TransactOpts, common.Address, 
 }
 
 func TestIntegration_MultiwordV1_Sim(t *testing.T) {
+	t.Parallel()
+
 	// Simulate a consumer contract calling to obtain ETH quotes in 3 different currencies
 	// in a single callback.
 	config, cleanup := cltest.NewConfig(t)
@@ -1349,6 +1359,8 @@ func setupNode(t *testing.T, owner *bind.TransactOpts, port int, dbName string, 
 }
 
 func TestIntegration_OCR(t *testing.T) {
+	t.Parallel()
+
 	owner, b, ocrContractAddress, ocrContract := setupOCRContracts(t)
 
 	// Note it's plausible these ports could be occupied on a CI machine.
@@ -1357,7 +1369,7 @@ func TestIntegration_OCR(t *testing.T) {
 	defer cleanup()
 
 	var (
-		oracles      []confighelper.OracleIdentity
+		oracles      []confighelper.OracleIdentityExtra
 		transmitters []common.Address
 		kbs          []ocrkey.EncryptedKeyBundle
 		apps         []*cltest.TestApplication
@@ -1369,16 +1381,20 @@ func TestIntegration_OCR(t *testing.T) {
 		// we'll flood it with messages and slow things down. 5s is about how long it takes the
 		// bootstrap node to come up.
 		app.Config.Set("OCR_BOOTSTRAP_CHECK_INTERVAL", "5s")
+		// GracePeriod < ObservationTimeout
+		app.Config.Set("OCR_OBSERVATION_GRACE_PERIOD", "100ms")
 
 		kbs = append(kbs, kb)
 		apps = append(apps, app)
 		transmitters = append(transmitters, transmitter)
 
-		oracles = append(oracles, confighelper.OracleIdentity{
-			OnChainSigningAddress:           ocrtypes.OnChainSigningAddress(kb.OnChainSigningAddress),
-			TransmitAddress:                 transmitter,
-			OffchainPublicKey:               ocrtypes.OffchainPublicKey(kb.OffChainPublicKey),
-			PeerID:                          peerID,
+		oracles = append(oracles, confighelper.OracleIdentityExtra{
+			OracleIdentity: confighelper.OracleIdentity{
+				OnChainSigningAddress: ocrtypes.OnChainSigningAddress(kb.OnChainSigningAddress),
+				TransmitAddress:       transmitter,
+				OffchainPublicKey:     ocrtypes.OffchainPublicKey(kb.OffChainPublicKey),
+				PeerID:                peerID,
+			},
 			SharedSecretEncryptionPublicKey: ocrtypes.SharedSecretEncryptionPublicKey(kb.ConfigPublicKey),
 		})
 	}
@@ -1428,13 +1444,27 @@ isBootstrapPeer    = true
 	require.NoError(t, err)
 
 	var jids []int32
+	var servers, slowServers = make([]*httptest.Server, 4), make([]*httptest.Server, 4)
 	for i := 0; i < 4; i++ {
 		err = apps[i].StartAndConnect()
 		require.NoError(t, err)
 		defer apps[i].Stop()
 
-		mockHTTP, cleanupHTTP := cltest.NewHTTPMockServer(t, http.StatusOK, "GET", `{"data": 10}`)
-		defer cleanupHTTP()
+		// Since this API speed is > ObservationTimeout we should ignore it and still produce values.
+		slowServers[i] = httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+			time.Sleep(5 * time.Second)
+			res.WriteHeader(http.StatusOK)
+			res.Write([]byte(`{"data":10}`))
+		}))
+		defer slowServers[i].Close()
+		servers[i] = httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+			res.WriteHeader(http.StatusOK)
+			res.Write([]byte(`{"data":10}`))
+		}))
+		defer servers[i].Close()
+
+		// Note we need: observationTimeout + observationGracePeriod + DeltaGrace (500ms) < DeltaRound (1s)
+		// So 200ms + 200ms + 500ms < 1s
 		ocrJob, err := offchainreporting.ValidatedOracleSpecToml(apps[i].Config.Config, fmt.Sprintf(`
 type               = "offchainreporting"
 schemaVersion      = 1
@@ -1446,7 +1476,7 @@ p2pBootstrapPeers  = [
 ]
 keyBundleID        = "%s"
 transmitterAddress = "%s"
-observationTimeout = "20s"
+observationTimeout = "100ms"
 contractConfigConfirmations = 1
 contractConfigTrackerPollInterval = "1s"
 observationSource = """
@@ -1454,9 +1484,18 @@ observationSource = """
     ds1          [type=http method=GET url="%s"];
     ds1_parse    [type=jsonparse path="data"];
     ds1_multiply [type=multiply times=%d];
-	ds1->ds1_parse->ds1_multiply;
+
+    // data source 2
+    ds2          [type=http method=GET url="%s"];
+    ds2_parse    [type=jsonparse path="data"];
+    ds2_multiply [type=multiply times=%d];
+
+    ds1 -> ds1_parse -> ds1_multiply -> answer1;
+    ds2 -> ds2_parse -> ds2_multiply -> answer1;
+
+	answer1 [type=median index=0];
 """
-`, ocrContractAddress, bootstrapPeerID, kbs[i].ID, transmitters[i], mockHTTP.URL, i))
+`, ocrContractAddress, bootstrapPeerID, kbs[i].ID, transmitters[i], servers[i].URL, i, slowServers[i].URL, i))
 		require.NoError(t, err)
 		jid, err := apps[i].AddJobV2(context.Background(), ocrJob, null.NewString("testocr", true))
 		require.NoError(t, err)
@@ -1484,5 +1523,127 @@ observationSource = """
 		answer, err := ocrContract.LatestAnswer(nil)
 		require.NoError(t, err)
 		return answer.String()
-	}, 5*time.Second, 200*time.Millisecond).Should(gomega.Equal("20"))
+	}, 10*time.Second, 200*time.Millisecond).Should(gomega.Equal("20"))
+
+	for _, app := range apps {
+		jobs, err := app.JobORM.JobsV2()
+		require.NoError(t, err)
+		// No spec errors
+		for _, j := range jobs {
+			ignore := 0
+			for i := range j.JobSpecErrors {
+				// Non-fatal timing related error, ignore for testing.
+				if strings.Contains(j.JobSpecErrors[i].Description, "leader's phase conflicts tGrace timeout") {
+					ignore++
+				}
+			}
+			require.Len(t, j.JobSpecErrors, ignore)
+		}
+	}
+}
+
+func TestIntegration_GasUpdater(t *testing.T) {
+	t.Parallel()
+
+	c, cfgCleanup := cltest.NewConfig(t)
+	defer cfgCleanup()
+	c.Set("ETH_GAS_PRICE_DEFAULT", 5000000000)
+	c.Set("GAS_UPDATER_ENABLED", true)
+	c.Set("GAS_UPDATER_BLOCK_DELAY", 0)
+	c.Set("GAS_UPDATER_BLOCK_HISTORY_SIZE", 2)
+	// Limit the headtracker backfill depth just so we aren't here all week
+	c.Set("ETH_FINALITY_DEPTH", 3)
+
+	rpcClient, gethClient, sub, assertMocksCalled := cltest.NewEthMocks(t)
+	defer assertMocksCalled()
+	chchNewHeads := make(chan chan<- *models.Head, 1)
+
+	app, cleanup := cltest.NewApplicationWithConfigAndKey(t, c,
+		eth.NewClientWith(rpcClient, gethClient),
+	)
+	defer cleanup()
+
+	b41 := models.Block{
+		Number:       41,
+		Hash:         cltest.NewHash(),
+		Transactions: cltest.TransactionsFromGasPrices(41000000000, 41500000000),
+	}
+	b42 := models.Block{
+		Number:       42,
+		Hash:         cltest.NewHash(),
+		Transactions: cltest.TransactionsFromGasPrices(44000000000, 45000000000),
+	}
+	b43 := models.Block{
+		Number:       43,
+		Hash:         cltest.NewHash(),
+		Transactions: cltest.TransactionsFromGasPrices(48000000000, 49000000000, 31000000000),
+	}
+
+	h40 := models.Head{Hash: cltest.NewHash(), Number: 40}
+	h41 := models.Head{Hash: b41.Hash, ParentHash: h40.Hash, Number: 41}
+	h42 := models.Head{Hash: b42.Hash, ParentHash: h41.Hash, Number: 42}
+
+	sub.On("Err").Return(nil)
+	sub.On("Unsubscribe").Return(nil).Maybe()
+	rpcClient.On("EthSubscribe", mock.Anything, mock.Anything, "newHeads").
+		Run(func(args mock.Arguments) { chchNewHeads <- args.Get(1).(chan<- *models.Head) }).
+		Return(sub, nil)
+	// Nonce syncer
+	gethClient.On("PendingNonceAt", mock.Anything, mock.Anything).Maybe().Return(uint64(0), nil)
+
+	// GasUpdater boot calls
+	rpcClient.On("CallContext", mock.Anything, mock.AnythingOfType("**models.Head"), "eth_getBlockByNumber", "latest", false).Return(nil).Run(func(args mock.Arguments) {
+		arg := args.Get(1).(**models.Head)
+		*arg = &h42
+	})
+	rpcClient.On("BatchCallContext", mock.Anything, mock.MatchedBy(func(b []rpc.BatchElem) bool {
+		return len(b) == 2 &&
+			b[0].Method == "eth_getBlockByNumber" && b[0].Args[0] == "0x29" &&
+			b[1].Method == "eth_getBlockByNumber" && b[1].Args[0] == "0x2a"
+	})).Return(nil).Run(func(args mock.Arguments) {
+		elems := args.Get(1).([]rpc.BatchElem)
+		elems[0].Result = &b41
+		elems[1].Result = &b42
+	})
+
+	gethClient.On("ChainID", mock.Anything).Return(c.ChainID(), nil)
+	gethClient.On("BalanceAt", mock.Anything, mock.Anything, mock.Anything).Maybe().Return(oneETH.ToInt(), nil)
+
+	require.NoError(t, app.Start())
+	var newHeads chan<- *models.Head
+	select {
+	case newHeads = <-chchNewHeads:
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for app to subscribe")
+	}
+
+	assert.Equal(t, "41500000000", app.Config.EthGasPriceDefault().String())
+
+	// GasUpdater new blocks
+	rpcClient.On("BatchCallContext", mock.Anything, mock.MatchedBy(func(b []rpc.BatchElem) bool {
+		return len(b) == 2 &&
+			b[0].Method == "eth_getBlockByNumber" && b[0].Args[0] == "0x2a" &&
+			b[1].Method == "eth_getBlockByNumber" && b[1].Args[0] == "0x2b"
+	})).Return(nil).Run(func(args mock.Arguments) {
+		elems := args.Get(1).([]rpc.BatchElem)
+		elems[0].Result = &b43
+		elems[1].Result = &b42
+	})
+
+	// HeadTracker backfill
+	rpcClient.On("CallContext", mock.Anything, mock.AnythingOfType("**models.Head"), "eth_getBlockByNumber", "0x2a", false).Return(nil).Run(func(args mock.Arguments) {
+		arg := args.Get(1).(**models.Head)
+		*arg = &h42
+	})
+	rpcClient.On("CallContext", mock.Anything, mock.AnythingOfType("**models.Head"), "eth_getBlockByNumber", "0x29", false).Return(nil).Run(func(args mock.Arguments) {
+		arg := args.Get(1).(**models.Head)
+		*arg = &h41
+	})
+
+	// Simulate one new head and check the gas price got updated
+	newHeads <- cltest.Head(43)
+
+	gomega.NewGomegaWithT(t).Eventually(func() string {
+		return c.EthGasPriceDefault().String()
+	}, cltest.DBWaitTimeout, cltest.DBPollingInterval).Should(gomega.Equal("45000000000"))
 }

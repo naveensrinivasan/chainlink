@@ -43,6 +43,90 @@ var (
 	nilContext = cli.NewContext(nil, nil, nil)
 )
 
+type startOptions struct {
+	// Set the config options
+	Config map[string]interface{}
+	// Use to set up mocks on the app
+	FlagsAndDeps []interface{}
+	// Add a key on start up
+	WithKey bool
+	// Use app.StartAndConnect instead of app.Start
+	StartAndConnect bool
+}
+
+func startNewApplication(t *testing.T, setup ...func(opts *startOptions)) *cltest.TestApplication {
+	t.Helper()
+
+	sopts := &startOptions{
+		Config:       map[string]interface{}{},
+		FlagsAndDeps: []interface{}{},
+	}
+	for _, fn := range setup {
+		fn(sopts)
+	}
+
+	// Setup config
+	config, cfgCleanup := cltest.NewConfig(t)
+	t.Cleanup(cfgCleanup)
+
+	for k, v := range sopts.Config {
+		config.Set(k, v)
+	}
+
+	var app *cltest.TestApplication
+	var cleanup func()
+	if sopts.WithKey {
+		app, cleanup = cltest.NewApplicationWithConfigAndKey(t, config, sopts.FlagsAndDeps...)
+	} else {
+		app, cleanup = cltest.NewApplicationWithConfig(t, config, sopts.FlagsAndDeps...)
+	}
+	t.Cleanup(cleanup)
+
+	if sopts.StartAndConnect {
+		require.NoError(t, app.StartAndConnect())
+	} else {
+		require.NoError(t, app.Start())
+	}
+
+	return app
+}
+
+// withConfig is a function option which sets config on the app
+func withConfig(cfgs map[string]interface{}) func(opts *startOptions) {
+	return func(opts *startOptions) {
+		for k, v := range cfgs {
+			opts.Config[k] = v
+		}
+	}
+}
+
+func withMocks(mks ...interface{}) func(opts *startOptions) {
+	return func(opts *startOptions) {
+		opts.FlagsAndDeps = mks
+	}
+}
+
+func withKey() func(opts *startOptions) {
+	return func(opts *startOptions) {
+		opts.WithKey = true
+	}
+}
+
+func startAndConnect() func(opts *startOptions) {
+	return func(opts *startOptions) {
+		opts.StartAndConnect = true
+	}
+}
+
+func newEthMocks(t *testing.T) (*mocks.RPCClient, *mocks.GethClient) {
+	t.Helper()
+
+	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
+	t.Cleanup(assertMocksCalled)
+
+	return rpcClient, gethClient
+}
+
 func keyNameForTest(t *testing.T) string {
 	return fmt.Sprintf("%s_test_key.json", t.Name())
 }
@@ -55,13 +139,6 @@ func deleteKeyExportFile(t *testing.T) {
 	} else {
 		require.NoError(t, err)
 	}
-}
-
-func mustLogIn(t *testing.T, client *cmd.Client) {
-	set := flag.NewFlagSet("test_login", 0)
-	set.String("file", "internal/fixtures/apicredentials", "")
-	c := cli.NewContext(nil, set, nil)
-	require.NoError(t, client.RemoteLogin(c))
 }
 
 func requireOCRKeyCount(t *testing.T, store *store.Store, length int) []ocrkey.EncryptedKeyBundle {
@@ -81,14 +158,11 @@ func requireP2PKeyCount(t *testing.T, store *store.Store, length int) []p2pkey.E
 func TestClient_ListETHKeys(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	app, cleanup := cltest.NewApplicationWithKey(t,
-		eth.NewClientWith(rpcClient, gethClient),
+	rpcClient, gethClient := newEthMocks(t)
+	app := startNewApplication(t,
+		withKey(),
+		withMocks(eth.NewClientWith(rpcClient, gethClient)),
 	)
-	defer cleanup()
-	require.NoError(t, app.Start())
-
 	client, r := app.NewClientAndRenderer()
 
 	gethClient.On("BalanceAt", mock.Anything, mock.Anything, mock.Anything).Maybe().Return(big.NewInt(42), nil)
@@ -103,22 +177,13 @@ func TestClient_ListETHKeys(t *testing.T) {
 func TestClient_IndexJobSpecs(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
+	app := startNewApplication(t)
+	client, r := app.NewClientAndRenderer()
 
 	j1 := cltest.NewJob()
 	app.Store.CreateJob(&j1)
 	j2 := cltest.NewJob()
 	app.Store.CreateJob(&j2)
-
-	client, r := app.NewClientAndRenderer()
 
 	require.Nil(t, client.IndexJobSpecs(cltest.EmptyCLIContext()))
 	jobs := *r.Renders[0].(*[]models.JobSpec)
@@ -129,22 +194,13 @@ func TestClient_IndexJobSpecs(t *testing.T) {
 func TestClient_ShowJobRun_Exists(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
+	app := startNewApplication(t)
+	client, r := app.NewClientAndRenderer()
 
 	j := cltest.NewJobWithWebInitiator()
 	assert.NoError(t, app.Store.CreateJob(&j))
 
 	jr := cltest.CreateJobRunViaWeb(t, app, j, `{"result":"100"}`)
-
-	client, r := app.NewClientAndRenderer()
 
 	set := flag.NewFlagSet("test", 0)
 	set.Parse([]string{jr.ID.String()})
@@ -157,16 +213,7 @@ func TestClient_ShowJobRun_Exists(t *testing.T) {
 func TestClient_ShowJobRun_NotFound(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
-
+	app := startNewApplication(t)
 	client, r := app.NewClientAndRenderer()
 
 	set := flag.NewFlagSet("test", 0)
@@ -179,15 +226,8 @@ func TestClient_ShowJobRun_NotFound(t *testing.T) {
 func TestClient_IndexJobRuns(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
+	app := startNewApplication(t)
+	client, r := app.NewClientAndRenderer()
 
 	j := cltest.NewJobWithWebInitiator()
 	assert.NoError(t, app.Store.CreateJob(&j))
@@ -198,8 +238,6 @@ func TestClient_IndexJobRuns(t *testing.T) {
 	jr1 := cltest.NewJobRun(j)
 	jr1.Result.Data = cltest.JSONFromString(t, `{"x":"y"}`)
 	require.NoError(t, app.Store.CreateJobRun(&jr1))
-
-	client, r := app.NewClientAndRenderer()
 
 	require.Nil(t, client.IndexJobRuns(cltest.EmptyCLIContext()))
 	runs := *r.Renders[0].(*[]presenters.JobRun)
@@ -213,20 +251,11 @@ func TestClient_IndexJobRuns(t *testing.T) {
 func TestClient_ShowJobSpec_Exists(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
+	app := startNewApplication(t)
+	client, r := app.NewClientAndRenderer()
 
 	job := cltest.NewJob()
 	app.Store.CreateJob(&job)
-
-	client, r := app.NewClientAndRenderer()
 
 	set := flag.NewFlagSet("test", 0)
 	set.Parse([]string{job.ID.String()})
@@ -239,16 +268,7 @@ func TestClient_ShowJobSpec_Exists(t *testing.T) {
 func TestClient_ShowJobSpec_NotFound(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
-
+	app := startNewApplication(t)
 	client, r := app.NewClientAndRenderer()
 
 	set := flag.NewFlagSet("test", 0)
@@ -273,15 +293,7 @@ func TestClient_CreateExternalInitiator(t *testing.T) {
 	for _, tt := range tests {
 		test := tt
 		t.Run(test.name, func(t *testing.T) {
-
-			rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-			defer assertMocksCalled()
-			app, cleanup := cltest.NewApplicationWithKey(t,
-				eth.NewClientWith(rpcClient, gethClient),
-			)
-			defer cleanup()
-			require.NoError(t, app.Start())
-
+			app := startNewApplication(t)
 			client, _ := app.NewClientAndRenderer()
 
 			set := flag.NewFlagSet("create", 0)
@@ -319,14 +331,7 @@ func TestClient_CreateExternalInitiator_Errors(t *testing.T) {
 	for _, tt := range tests {
 		test := tt
 		t.Run(test.name, func(t *testing.T) {
-			rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-			defer assertMocksCalled()
-			app, cleanup := cltest.NewApplicationWithKey(t,
-				eth.NewClientWith(rpcClient, gethClient),
-			)
-			defer cleanup()
-			require.NoError(t, app.Start())
-
+			app := startNewApplication(t)
 			client, _ := app.NewClientAndRenderer()
 
 			set := flag.NewFlagSet("create", 0)
@@ -345,15 +350,8 @@ func TestClient_CreateExternalInitiator_Errors(t *testing.T) {
 func TestClient_DestroyExternalInitiator(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
+	app := startNewApplication(t)
+	client, r := app.NewClientAndRenderer()
 
 	token := auth.NewToken()
 	exi, err := models.NewExternalInitiator(token,
@@ -362,8 +360,6 @@ func TestClient_DestroyExternalInitiator(t *testing.T) {
 	require.NoError(t, err)
 	err = app.Store.CreateExternalInitiator(exi)
 	require.NoError(t, err)
-
-	client, r := app.NewClientAndRenderer()
 
 	set := flag.NewFlagSet("test", 0)
 	set.Parse([]string{exi.Name})
@@ -375,16 +371,7 @@ func TestClient_DestroyExternalInitiator(t *testing.T) {
 func TestClient_DestroyExternalInitiator_NotFound(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
-
+	app := startNewApplication(t)
 	client, r := app.NewClientAndRenderer()
 
 	set := flag.NewFlagSet("test", 0)
@@ -397,16 +384,7 @@ func TestClient_DestroyExternalInitiator_NotFound(t *testing.T) {
 func TestClient_CreateJobSpec(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
-
+	app := startNewApplication(t)
 	client, _ := app.NewClientAndRenderer()
 
 	tests := []struct {
@@ -439,22 +417,12 @@ func TestClient_CreateJobSpec(t *testing.T) {
 func TestClient_ArchiveJobSpec(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
 	eim := new(mocks.ExternalInitiatorManager)
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-		eim,
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
+	app := startNewApplication(t, withMocks(eim))
+	client, _ := app.NewClientAndRenderer()
 
 	job := cltest.NewJob()
 	require.NoError(t, app.Store.CreateJob(&job))
-
-	client, _ := app.NewClientAndRenderer()
 
 	set := flag.NewFlagSet("archive", 0)
 	set.Parse([]string{job.ID.String()})
@@ -473,16 +441,7 @@ func TestClient_ArchiveJobSpec(t *testing.T) {
 func TestClient_CreateJobSpec_JSONAPIErrors(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
-
+	app := startNewApplication(t)
 	client, _ := app.NewClientAndRenderer()
 
 	set := flag.NewFlagSet("create", 0)
@@ -497,16 +456,7 @@ func TestClient_CreateJobSpec_JSONAPIErrors(t *testing.T) {
 func TestClient_CreateJobRun(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
-
+	app := startNewApplication(t)
 	client, _ := app.NewClientAndRenderer()
 
 	tests := []struct {
@@ -552,16 +502,7 @@ func TestClient_CreateJobRun(t *testing.T) {
 func TestClient_CreateBridge(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
-
+	app := startNewApplication(t)
 	client, _ := app.NewClientAndRenderer()
 
 	tests := []struct {
@@ -596,15 +537,8 @@ func TestClient_CreateBridge(t *testing.T) {
 func TestClient_IndexBridges(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
+	app := startNewApplication(t)
+	client, r := app.NewClientAndRenderer()
 
 	bt1 := &models.BridgeType{
 		Name:          models.MustNewTaskType("testingbridges1"),
@@ -622,8 +556,6 @@ func TestClient_IndexBridges(t *testing.T) {
 	err = app.GetStore().CreateBridgeType(bt2)
 	require.NoError(t, err)
 
-	client, r := app.NewClientAndRenderer()
-
 	require.Nil(t, client.IndexBridges(cltest.EmptyCLIContext()))
 	bridges := *r.Renders[0].(*[]models.BridgeType)
 	require.Equal(t, 2, len(bridges))
@@ -633,13 +565,8 @@ func TestClient_IndexBridges(t *testing.T) {
 func TestClient_ShowBridge(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	app, cleanup := cltest.NewApplication(t,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.StartAndConnect())
+	app := startNewApplication(t)
+	client, r := app.NewClientAndRenderer()
 
 	bt := &models.BridgeType{
 		Name:          models.MustNewTaskType("testingbridges1"),
@@ -647,8 +574,6 @@ func TestClient_ShowBridge(t *testing.T) {
 		Confirmations: 0,
 	}
 	require.NoError(t, app.GetStore().CreateBridgeType(bt))
-
-	client, r := app.NewClientAndRenderer()
 
 	set := flag.NewFlagSet("test", 0)
 	set.Parse([]string{bt.Name.String()})
@@ -661,15 +586,8 @@ func TestClient_ShowBridge(t *testing.T) {
 func TestClient_RemoveBridge(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
+	app := startNewApplication(t)
+	client, r := app.NewClientAndRenderer()
 
 	bt := &models.BridgeType{
 		Name:          models.MustNewTaskType("testingbridges1"),
@@ -678,8 +596,6 @@ func TestClient_RemoveBridge(t *testing.T) {
 	}
 	err := app.GetStore().CreateBridgeType(bt)
 	require.NoError(t, err)
-
-	client, r := app.NewClientAndRenderer()
 
 	set := flag.NewFlagSet("test", 0)
 	set.Parse([]string{bt.Name.String()})
@@ -692,15 +608,9 @@ func TestClient_RemoveBridge(t *testing.T) {
 func TestClient_RemoteLogin(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
+	app := startNewApplication(t, withConfig(map[string]interface{}{
+		"ADMIN_CREDENTIALS_FILE": "",
+	}))
 
 	tests := []struct {
 		name, file string
@@ -733,31 +643,22 @@ func TestClient_RemoteLogin(t *testing.T) {
 	}
 }
 
-func setupWithdrawalsApplication(t *testing.T, config *cltest.TestConfig) (*cltest.TestApplication, func()) {
-	oca := common.HexToAddress("0xDEADB3333333F")
-	config.Set("OPERATOR_CONTRACT_ADDRESS", &oca)
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	app, cleanup := cltest.NewApplicationWithConfigAndKey(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	return app, func() {
-		assertMocksCalled()
-		cleanup()
-	}
-}
-
 func TestClient_SendEther_From_BPTXM(t *testing.T) {
 	t.Parallel()
 
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := setupWithdrawalsApplication(t, config)
-	defer cleanup()
+	rpcClient, gethClient := newEthMocks(t)
+	oca := common.HexToAddress("0xDEADB3333333F")
+	app := startNewApplication(t,
+		withKey(),
+		withConfig(map[string]interface{}{
+			"OPERATOR_CONTRACT_ADDRESS": &oca,
+		}),
+		withMocks(eth.NewClientWith(rpcClient, gethClient)),
+		startAndConnect(),
+	)
+	client, _ := app.NewClientAndRenderer()
 	s := app.GetStore()
 
-	require.NoError(t, app.StartAndConnect())
-
-	client, _ := app.NewClientAndRenderer()
 	set := flag.NewFlagSet("sendether", 0)
 	amount := "100.5"
 	_, fromAddress := cltest.MustAddRandomKeyToKeystore(t, s, 0)
@@ -779,15 +680,7 @@ func TestClient_SendEther_From_BPTXM(t *testing.T) {
 func TestClient_ChangePassword(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
+	app := startNewApplication(t)
 
 	enteredStrings := []string{cltest.APIEmail, cltest.Password}
 	prompter := &cltest.MockCountingPrompter{EnteredStrings: enteredStrings}
@@ -816,29 +709,20 @@ func TestClient_ChangePassword(t *testing.T) {
 	// otherClient should now be logged out
 	err = otherClient.IndexBridges(c)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "401 Unauthorized")
+	require.Contains(t, err.Error(), "Unauthorized")
 }
 
 func TestClient_IndexTransactions(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
+	app := startNewApplication(t)
+	client, r := app.NewClientAndRenderer()
 
 	store := app.GetStore()
 	_, from := cltest.MustAddRandomKeyToKeystore(t, store)
 
 	tx := cltest.MustInsertConfirmedEthTxWithAttempt(t, store, 0, 1, from)
 	attempt := tx.EthTxAttempts[0]
-
-	client, r := app.NewClientAndRenderer()
 
 	// page 1
 	set := flag.NewFlagSet("test transactions", 0)
@@ -865,23 +749,14 @@ func TestClient_IndexTransactions(t *testing.T) {
 func TestClient_ShowTransaction(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
+	app := startNewApplication(t)
+	client, r := app.NewClientAndRenderer()
 
 	store := app.GetStore()
 	_, from := cltest.MustAddRandomKeyToKeystore(t, store)
 
 	tx := cltest.MustInsertConfirmedEthTxWithAttempt(t, store, 0, 1, from)
 	attempt := tx.EthTxAttempts[0]
-
-	client, r := app.NewClientAndRenderer()
 
 	set := flag.NewFlagSet("test get tx", 0)
 	set.Parse([]string{attempt.Hash.Hex()})
@@ -895,22 +770,13 @@ func TestClient_ShowTransaction(t *testing.T) {
 func TestClient_IndexTxAttempts(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
+	app := startNewApplication(t)
+	client, r := app.NewClientAndRenderer()
 
 	store := app.GetStore()
 	_, from := cltest.MustAddRandomKeyToKeystore(t, store)
 
 	tx := cltest.MustInsertConfirmedEthTxWithAttempt(t, store, 0, 1, from)
-
-	client, r := app.NewClientAndRenderer()
 
 	// page 1
 	set := flag.NewFlagSet("test txattempts", 0)
@@ -937,21 +803,15 @@ func TestClient_IndexTxAttempts(t *testing.T) {
 func TestClient_CreateETHKey(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	app, cleanup := cltest.NewApplicationWithKey(t,
-		eth.NewClientWith(rpcClient, gethClient),
+	rpcClient, gethClient := newEthMocks(t)
+	app := startNewApplication(t,
+		withKey(),
+		withMocks(eth.NewClientWith(rpcClient, gethClient)),
 	)
-	defer cleanup()
-	gethClient.On("BalanceAt", mock.Anything, mock.Anything, mock.Anything).Return(big.NewInt(42), nil)
-	rpcClient.On("Call", mock.Anything, "eth_call", mock.Anything, "latest").Return(nil)
-
-	require.NoError(t, app.Start())
-
 	client, _ := app.NewClientAndRenderer()
 
-	mustLogIn(t, client)
-	client.PasswordPrompter = cltest.MockPasswordPrompter{Password: cltest.Password}
+	gethClient.On("BalanceAt", mock.Anything, mock.Anything, mock.Anything).Return(big.NewInt(42), nil)
+	rpcClient.On("Call", mock.Anything, "eth_call", mock.Anything, "latest").Return(nil)
 
 	assert.NoError(t, client.CreateETHKey(nilContext))
 }
@@ -959,21 +819,16 @@ func TestClient_CreateETHKey(t *testing.T) {
 func TestClient_ImportExportETHKey(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
+	defer deleteKeyExportFile(t)
+
+	rpcClient, gethClient := newEthMocks(t)
+	app := startNewApplication(t,
+		withMocks(eth.NewClientWith(rpcClient, gethClient)),
 	)
-	defer cleanup()
+	client, r := app.NewClientAndRenderer()
 
 	gethClient.On("BalanceAt", mock.Anything, mock.Anything, mock.Anything).Return(big.NewInt(42), nil)
 	rpcClient.On("Call", mock.Anything, "eth_call", mock.Anything, "latest").Return(nil)
-
-	client, r := app.NewClientAndRenderer()
-
-	require.NoError(t, app.Start())
 
 	set := flag.NewFlagSet("test", 0)
 	set.String("file", "internal/fixtures/apicredentials", "")
@@ -1043,18 +898,35 @@ func TestClient_ImportExportETHKey(t *testing.T) {
 	acct, err := keystore.Import(keyJSON, strings.TrimSpace(string(newpassword)))
 	assert.NoError(t, err)
 	assert.Equal(t, addr.Hex(), acct.Address.Hex())
+
+	// Export test invalid id
+	keyName := keyNameForTest(t)
+	set = flag.NewFlagSet("test Eth export invalid id", 0)
+	set.Parse([]string{"999"})
+	set.String("newpassword", "../internal/fixtures/apicredentials", "")
+	set.String("output", keyName, "")
+	c = cli.NewContext(nil, set, nil)
+	err = client.ExportETHKey(c)
+	require.Error(t, err, "Error exporting")
+	require.Error(t, utils.JustError(os.Stat(keyName)))
 }
 
 func TestClient_SetMinimumGasPrice(t *testing.T) {
 	t.Parallel()
 
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := setupWithdrawalsApplication(t, config)
-	defer cleanup()
-	require.NoError(t, app.StartAndConnect())
-
+	// Setup Withdrawals application
+	rpcClient, gethClient := newEthMocks(t)
+	oca := common.HexToAddress("0xDEADB3333333F")
+	app := startNewApplication(t,
+		withKey(),
+		withConfig(map[string]interface{}{
+			"OPERATOR_CONTRACT_ADDRESS": &oca,
+		}),
+		withMocks(eth.NewClientWith(rpcClient, gethClient)),
+		startAndConnect(),
+	)
 	client, _ := app.NewClientAndRenderer()
+
 	set := flag.NewFlagSet("setgasprice", 0)
 	set.Parse([]string{"8616460799"})
 
@@ -1077,17 +949,9 @@ func TestClient_SetMinimumGasPrice(t *testing.T) {
 func TestClient_GetConfiguration(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
-
+	app := startNewApplication(t)
 	client, r := app.NewClientAndRenderer()
+
 	assert.NoError(t, client.GetConfiguration(cltest.EmptyCLIContext()))
 	require.Equal(t, 1, len(r.Renders))
 
@@ -1108,22 +972,13 @@ func TestClient_GetConfiguration(t *testing.T) {
 func TestClient_CancelJobRun(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
+	app := startNewApplication(t)
+	client, _ := app.NewClientAndRenderer()
 
 	job := cltest.NewJobWithWebInitiator()
 	require.NoError(t, app.Store.CreateJob(&job))
 	run := cltest.NewJobRun(job)
 	require.NoError(t, app.Store.CreateJobRun(&run))
-
-	client, _ := app.NewClientAndRenderer()
 
 	set := flag.NewFlagSet("cancel", 0)
 	set.Parse([]string{run.ID.String()})
@@ -1140,20 +995,11 @@ func TestClient_CancelJobRun(t *testing.T) {
 func TestClient_P2P_CreateKey(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
-
+	app := startNewApplication(t)
 	client, _ := app.NewClientAndRenderer()
+
 	app.Store.OCRKeyStore.Unlock(cltest.Password)
 
-	mustLogIn(t, client)
 	require.NoError(t, client.CreateP2PKey(nilContext))
 
 	keys, err := app.GetStore().OCRKeyStore.FindEncryptedP2PKeys()
@@ -1171,17 +1017,9 @@ func TestClient_P2P_CreateKey(t *testing.T) {
 func TestClient_P2P_DeleteKey(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
-
+	app := startNewApplication(t)
 	client, _ := app.NewClientAndRenderer()
+
 	app.Store.OCRKeyStore.Unlock(cltest.Password)
 
 	key, err := p2pkey.CreateKey()
@@ -1192,8 +1030,6 @@ func TestClient_P2P_DeleteKey(t *testing.T) {
 	require.NoError(t, err)
 
 	requireP2PKeyCount(t, app.Store, 2) // Created  + fixture key
-
-	mustLogIn(t, client)
 
 	set := flag.NewFlagSet("test", 0)
 	set.Bool("yes", true, "")
@@ -1207,33 +1043,36 @@ func TestClient_P2P_DeleteKey(t *testing.T) {
 }
 
 func TestClient_ImportExportP2PKeyBundle(t *testing.T) {
+	t.Parallel()
+
 	defer deleteKeyExportFile(t)
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
-
-	store := app.GetStore()
+	app := startNewApplication(t)
 	client, _ := app.NewClientAndRenderer()
+	store := app.GetStore()
+
 	store.OCRKeyStore.Unlock(cltest.Password)
 
 	keys := requireP2PKeyCount(t, store, 1)
 	key := keys[0]
-
-	mustLogIn(t, client)
-
 	keyName := keyNameForTest(t)
+
+	// Export test invalid id
 	set := flag.NewFlagSet("test P2P export", 0)
-	set.Parse([]string{fmt.Sprint(key.ID)})
+	set.Parse([]string{"0"})
 	set.String("newpassword", "../internal/fixtures/apicredentials", "")
 	set.String("output", keyName, "")
 	c := cli.NewContext(nil, set, nil)
+	err := client.ExportP2PKey(c)
+	require.Error(t, err, "Error exporting")
+	require.Error(t, utils.JustError(os.Stat(keyName)))
+
+	// Export test
+	set = flag.NewFlagSet("test P2P export", 0)
+	set.Parse([]string{fmt.Sprint(key.ID)})
+	set.String("newpassword", "../internal/fixtures/apicredentials", "")
+	set.String("output", keyName, "")
+	c = cli.NewContext(nil, set, nil)
 
 	require.NoError(t, client.ExportP2PKey(c))
 	require.NoError(t, utils.JustError(os.Stat(keyName)))
@@ -1253,20 +1092,11 @@ func TestClient_ImportExportP2PKeyBundle(t *testing.T) {
 func TestClient_CreateOCRKeyBundle(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
-
+	app := startNewApplication(t)
 	client, _ := app.NewClientAndRenderer()
+
 	app.Store.OCRKeyStore.Unlock(cltest.Password)
 
-	mustLogIn(t, client)
 	require.NoError(t, client.CreateOCRKeyBundle(nilContext))
 
 	keys, err := app.GetStore().OCRKeyStore.FindEncryptedOCRKeyBundles()
@@ -1284,17 +1114,9 @@ func TestClient_CreateOCRKeyBundle(t *testing.T) {
 func TestClient_DeleteOCRKeyBundle(t *testing.T) {
 	t.Parallel()
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
-
+	app := startNewApplication(t)
 	client, _ := app.NewClientAndRenderer()
+
 	app.Store.OCRKeyStore.Unlock(cltest.Password)
 
 	key, err := ocrkey.NewKeyBundle()
@@ -1305,8 +1127,6 @@ func TestClient_DeleteOCRKeyBundle(t *testing.T) {
 	require.NoError(t, err)
 
 	requireOCRKeyCount(t, app.Store, 2) // Created key + fixture key
-
-	mustLogIn(t, client)
 
 	set := flag.NewFlagSet("test", 0)
 	set.Parse([]string{key.ID.String()})
@@ -1320,30 +1140,32 @@ func TestClient_DeleteOCRKeyBundle(t *testing.T) {
 func TestClient_ImportExportOCRKeyBundle(t *testing.T) {
 	defer deleteKeyExportFile(t)
 
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	config, cleanup := cltest.NewConfig(t)
-	defer cleanup()
-	app, cleanup := cltest.NewApplicationWithConfig(t, config,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
-	store := app.GetStore()
+	app := startNewApplication(t)
 	client, _ := app.NewClientAndRenderer()
+
+	store := app.GetStore()
 	store.OCRKeyStore.Unlock(cltest.Password)
 
 	keys := requireOCRKeyCount(t, store, 1)
 	key := keys[0]
-
-	mustLogIn(t, client)
-
 	keyName := keyNameForTest(t)
+
+	// Export test invalid id
 	set := flag.NewFlagSet("test OCR export", 0)
-	set.Parse([]string{key.ID.String()})
+	set.Parse([]string{"0"})
 	set.String("newpassword", "../internal/fixtures/apicredentials", "")
 	set.String("output", keyName, "")
 	c := cli.NewContext(nil, set, nil)
+	err := client.ExportOCRKey(c)
+	require.Error(t, err, "Error exporting")
+	require.Error(t, utils.JustError(os.Stat(keyName)))
+
+	// Export
+	set = flag.NewFlagSet("test OCR export", 0)
+	set.Parse([]string{key.ID.String()})
+	set.String("newpassword", "../internal/fixtures/apicredentials", "")
+	set.String("output", keyName, "")
+	c = cli.NewContext(nil, set, nil)
 
 	require.NoError(t, client.ExportOCRKey(c))
 	require.NoError(t, utils.JustError(os.Stat(keyName)))
@@ -1362,17 +1184,16 @@ func TestClient_ImportExportOCRKeyBundle(t *testing.T) {
 
 func TestClient_RunOCRJob_HappyPath(t *testing.T) {
 	t.Parallel()
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	app, cleanup := cltest.NewApplication(t,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
 
+	app := startNewApplication(t)
 	client, _ := app.NewClientAndRenderer()
 
-	var ocrJobSpecFromFile job.SpecDB
+	_, bridge := cltest.NewBridgeType(t, "voter_turnout", "http://blah.com")
+	require.NoError(t, app.Store.DB.Create(bridge).Error)
+	_, bridge2 := cltest.NewBridgeType(t, "election_winner", "http://blah.com")
+	require.NoError(t, app.Store.DB.Create(bridge2).Error)
+
+	var ocrJobSpecFromFile job.Job
 	tree, err := toml.LoadFile("testdata/oracle-spec.toml")
 	require.NoError(t, err)
 	err = tree.Unmarshal(&ocrJobSpecFromFile)
@@ -1381,7 +1202,6 @@ func TestClient_RunOCRJob_HappyPath(t *testing.T) {
 	err = tree.Unmarshal(&ocrSpec)
 	require.NoError(t, err)
 	ocrJobSpecFromFile.OffchainreportingOracleSpec = &ocrSpec
-
 	key := cltest.MustInsertRandomKey(t, app.Store.DB)
 	ocrJobSpecFromFile.OffchainreportingOracleSpec.TransmitterAddress = &key.Address
 
@@ -1397,14 +1217,8 @@ func TestClient_RunOCRJob_HappyPath(t *testing.T) {
 
 func TestClient_RunOCRJob_MissingJobID(t *testing.T) {
 	t.Parallel()
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	app, cleanup := cltest.NewApplication(t,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
 
+	app := startNewApplication(t)
 	client, _ := app.NewClientAndRenderer()
 
 	set := flag.NewFlagSet("test", 0)
@@ -1416,14 +1230,8 @@ func TestClient_RunOCRJob_MissingJobID(t *testing.T) {
 
 func TestClient_RunOCRJob_JobNotFound(t *testing.T) {
 	t.Parallel()
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	app, cleanup := cltest.NewApplication(t,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
 
+	app := startNewApplication(t)
 	client, _ := app.NewClientAndRenderer()
 
 	set := flag.NewFlagSet("test", 0)
@@ -1431,16 +1239,13 @@ func TestClient_RunOCRJob_JobNotFound(t *testing.T) {
 	c := cli.NewContext(nil, set, nil)
 
 	require.NoError(t, client.RemoteLogin(c))
-	assert.EqualError(t, client.TriggerPipelineRun(c), "500 Internal Server Error; no job found with id 1 (most likely it was deleted)")
+	assert.EqualError(t, client.TriggerPipelineRun(c), "parseResponse error: Error; no job found with id 1 (most likely it was deleted)")
 }
 
 func TestClient_ListJobsV2(t *testing.T) {
 	t.Parallel()
 
-	app, cleanup := cltest.NewApplication(t)
-	defer cleanup()
-	require.NoError(t, app.Start())
-
+	app := startNewApplication(t)
 	client, r := app.NewClientAndRenderer()
 
 	// Create the job
@@ -1466,4 +1271,71 @@ func TestClient_ListJobsV2(t *testing.T) {
 	jobs := *r.Renders[0].(*[]cmd.Job)
 	require.Equal(t, 1, len(jobs))
 	assert.Equal(t, job.ID, jobs[0].ID)
+}
+
+func TestClient_CreateJobV2(t *testing.T) {
+	t.Parallel()
+
+	app := startNewApplication(t)
+	client, _ := app.NewClientAndRenderer()
+
+	fs := flag.NewFlagSet("", flag.ExitOnError)
+	fs.Parse([]string{"./testdata/ocr-bootstrap-spec.toml"})
+	err := client.CreateJobV2(cli.NewContext(nil, fs, nil))
+	require.NoError(t, err)
+}
+
+func TestClient_AutoLogin(t *testing.T) {
+	t.Parallel()
+
+	app := startNewApplication(t)
+
+	user := cltest.MustRandomUser()
+	require.NoError(t, app.Store.SaveUser(&user))
+
+	sr := models.SessionRequest{
+		Email:    user.Email,
+		Password: cltest.Password,
+	}
+	client, _ := app.NewClientAndRenderer()
+	client.CookieAuthenticator = cmd.NewSessionCookieAuthenticator(app.Config.Config, &cmd.MemoryCookieStore{})
+	client.HTTP = cmd.NewAuthenticatedHTTPClient(app.Config, client.CookieAuthenticator, sr)
+
+	fs := flag.NewFlagSet("", flag.ExitOnError)
+	err := client.ListJobsV2(cli.NewContext(nil, fs, nil))
+	require.NoError(t, err)
+}
+
+func TestClient_SetLogConfig(t *testing.T) {
+	t.Parallel()
+
+	app := startNewApplication(t)
+	client, _ := app.NewClientAndRenderer()
+
+	logLevel := "warn"
+	set := flag.NewFlagSet("loglevel", 0)
+	set.String("level", logLevel, "")
+	c := cli.NewContext(nil, set, nil)
+
+	err := client.SetLogLevel(c)
+	require.NoError(t, err)
+	assert.Equal(t, logLevel, app.Config.LogLevel().String())
+
+	sqlEnabled := true
+	set = flag.NewFlagSet("logsql", 0)
+	set.Bool("enable", sqlEnabled, "")
+	c = cli.NewContext(nil, set, nil)
+
+	err = client.SetLogSQL(c)
+	assert.NoError(t, err)
+	assert.Equal(t, sqlEnabled, app.Config.LogSQLStatements())
+
+	sqlEnabled = false
+	set = flag.NewFlagSet("logsql", 0)
+	set.Bool("disable", true, "")
+	c = cli.NewContext(nil, set, nil)
+
+	err = client.SetLogSQL(c)
+	assert.NoError(t, err)
+	assert.Equal(t, sqlEnabled, app.Config.LogSQLStatements())
 }

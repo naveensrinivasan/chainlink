@@ -10,7 +10,7 @@ import (
 // JAID represents a JSON API ID.
 // It implements the api2go MarshalIdentifier and UnmarshalIdentitier interface.
 type JAID struct {
-	ID string `json:"-"`
+	ID string `json:"id"`
 }
 
 // GetID implements the api2go MarshalIdentifier interface.
@@ -80,7 +80,7 @@ type Job struct {
 
 // GetName implements the api2go EntityNamer interface
 func (j Job) GetName() string {
-	return "specDBs"
+	return "jobs"
 }
 
 // GetTasks extracts the tasks from the dependency graph

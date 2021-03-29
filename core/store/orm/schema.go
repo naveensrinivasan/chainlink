@@ -15,6 +15,7 @@ import (
 
 // ConfigSchema records the schema of configuration at the type level
 type ConfigSchema struct {
+	AdminCredentialsFile                      string          `env:"ADMIN_CREDENTIALS_FILE" default:"$ROOT/apicredentials"`
 	AllowOrigins                              string          `env:"ALLOW_ORIGINS" default:"http://localhost:3000,http://localhost:6688"`
 	AuthenticatedRateLimit                    int64           `env:"AUTHENTICATED_RATE_LIMIT" default:"1000"`
 	AuthenticatedRateLimitPeriod              time.Duration   `env:"AUTHENTICATED_RATE_LIMIT_PERIOD" default:"1m"`
@@ -28,6 +29,9 @@ type ConfigSchema struct {
 	DatabaseListenerMinReconnectInterval      time.Duration   `env:"DATABASE_LISTENER_MIN_RECONNECT_INTERVAL" default:"1m"`
 	DatabaseListenerMaxReconnectDuration      time.Duration   `env:"DATABASE_LISTENER_MAX_RECONNECT_DURATION" default:"10m"`
 	DatabaseMaximumTxDuration                 time.Duration   `env:"DATABASE_MAXIMUM_TX_DURATION" default:"30m"`
+	DatabaseBackupMode                        string          `env:"DATABASE_BACKUP_MODE" default:"none"`
+	DatabaseBackupFrequency                   time.Duration   `env:"DATABASE_BACKUP_FREQUENCY" default:"0m"`
+	DatabaseBackupURL                         *url.URL        `env:"DATABASE_BACKUP_URL" default:""`
 	DefaultHTTPLimit                          int64           `env:"DEFAULT_HTTP_LIMIT" default:"32768"`
 	DefaultHTTPTimeout                        models.Duration `env:"DEFAULT_HTTP_TIMEOUT" default:"15s"`
 	DefaultHTTPAllowUnrestrictedNetworkAccess bool            `env:"DEFAULT_HTTP_ALLOW_UNRESTRICTED_NETWORK_ACCESS" default:"false"`
@@ -35,6 +39,7 @@ type ConfigSchema struct {
 	EnableExperimentalAdapters                bool            `env:"ENABLE_EXPERIMENTAL_ADAPTERS" default:"false"`
 	FeatureExternalInitiators                 bool            `env:"FEATURE_EXTERNAL_INITIATORS" default:"false"`
 	FeatureFluxMonitor                        bool            `env:"FEATURE_FLUX_MONITOR" default:"true"`
+	FeatureFluxMonitorV2                      bool            `env:"FEATURE_FLUX_MONITOR_V2" default:"false"`
 	FeatureOffchainReporting                  bool            `env:"FEATURE_OFFCHAIN_REPORTING" default:"false"`
 	GlobalLockRetryInterval                   models.Duration `env:"GLOBAL_LOCK_RETRY_INTERVAL" default:"1s"`
 	MaximumServiceDuration                    models.Duration `env:"MAXIMUM_SERVICE_DURATION" default:"8760h" `
@@ -46,27 +51,33 @@ type ConfigSchema struct {
 	EthGasLimitDefault                        uint64          `env:"ETH_GAS_LIMIT_DEFAULT" default:"500000"`
 	EthGasPriceDefault                        big.Int         `env:"ETH_GAS_PRICE_DEFAULT" default:"20000000000"`
 	EthMaxGasPriceWei                         uint64          `env:"ETH_MAX_GAS_PRICE_WEI" default:"1500000000000"`
+	EthMaxUnconfirmedTransactions             uint64          `env:"ETH_MAX_UNCONFIRMED_TRANSACTIONS" default:"500"`
 	EthFinalityDepth                          uint            `env:"ETH_FINALITY_DEPTH" default:"50"`
 	EthHeadTrackerHistoryDepth                uint            `env:"ETH_HEAD_TRACKER_HISTORY_DEPTH" default:"100"`
 	EthHeadTrackerMaxBufferSize               uint            `env:"ETH_HEAD_TRACKER_MAX_BUFFER_SIZE" default:"3"`
 	EthBalanceMonitorBlockDelay               uint16          `env:"ETH_BALANCE_MONITOR_BLOCK_DELAY" default:"1"`
 	EthReceiptFetchBatchSize                  uint32          `env:"ETH_RECEIPT_FETCH_BATCH_SIZE" default:"100"`
+	EthTxResendAfterThreshold                 time.Duration   `env:"ETH_TX_RESEND_AFTER_THRESHOLD" default:"30s"`
 	EthereumURL                               string          `env:"ETH_URL" default:"ws://localhost:8546"`
 	EthereumSecondaryURL                      string          `env:"ETH_SECONDARY_URL" default:""`
 	EthereumSecondaryURLs                     string          `env:"ETH_SECONDARY_URLS" default:""`
 	EthereumDisabled                          bool            `env:"ETH_DISABLED" default:"false"`
 	FlagsContractAddress                      string          `env:"FLAGS_CONTRACT_ADDRESS"`
-	GasUpdaterBlockDelay                      uint16          `env:"GAS_UPDATER_BLOCK_DELAY" default:"3"`
+	GasUpdaterBlockDelay                      uint16          `env:"GAS_UPDATER_BLOCK_DELAY" default:"1"`
 	GasUpdaterBlockHistorySize                uint16          `env:"GAS_UPDATER_BLOCK_HISTORY_SIZE" default:"24"`
 	GasUpdaterTransactionPercentile           uint16          `env:"GAS_UPDATER_TRANSACTION_PERCENTILE" default:"60"`
 	GasUpdaterEnabled                         bool            `env:"GAS_UPDATER_ENABLED" default:"true"`
+	HeadTimeBudget                            time.Duration   `env:"HEAD_TIME_BUDGET" default:"8s"`
 	InsecureFastScrypt                        bool            `env:"INSECURE_FAST_SCRYPT" default:"false"`
 	JobPipelineMaxRunDuration                 time.Duration   `env:"JOB_PIPELINE_MAX_RUN_DURATION" default:"10m"`
-	JobPipelineMaxTaskDuration                time.Duration   `env:"JOB_PIPELINE_MAX_TASK_DURATION" default:"11s"`
+	JobPipelineResultWriteQueueDepth          uint64          `env:"JOB_PIPELINE_RESULT_WRITE_QUEUE_DEPTH" default:"100"`
 	JobPipelineParallelism                    uint8           `env:"JOB_PIPELINE_PARALLELISM" default:"4"`
 	JobPipelineReaperInterval                 time.Duration   `env:"JOB_PIPELINE_REAPER_INTERVAL" default:"1h"`
 	JobPipelineReaperThreshold                time.Duration   `env:"JOB_PIPELINE_REAPER_THRESHOLD" default:"168h"`
 	JSONConsole                               bool            `env:"JSON_CONSOLE" default:"false"`
+	KeeperRegistrySyncInterval                time.Duration   `env:"KEEPER_REGISTRY_SYNC_INTERVAL" default:"30m"`
+	KeeperMinimumRequiredConfirmations        uint64          `env:"KEEPER_MINIMUM_REQUIRED_CONFIRMATIONS" default:"12"`
+	KeeperMaximumGracePeriod                  int64           `env:"KEEPER_MAXIMUM_GRACE_PERIOD" default:"100"`
 	LinkContractAddress                       string          `env:"LINK_CONTRACT_ADDRESS" default:"0x514910771AF9Ca656af840dff83E8264EcF986CA"`
 	ExplorerURL                               *url.URL        `env:"EXPLORER_URL"`
 	ExplorerAccessKey                         string          `env:"EXPLORER_ACCESS_KEY"`
@@ -81,7 +92,8 @@ type ConfigSchema struct {
 	MinRequiredOutgoingConfirmations          uint64          `env:"MIN_OUTGOING_CONFIRMATIONS" default:"12"`
 	MinimumContractPayment                    assets.Link     `env:"MINIMUM_CONTRACT_PAYMENT" default:"1000000000000000000"`
 	MinimumRequestExpiration                  uint64          `env:"MINIMUM_REQUEST_EXPIRATION" default:"300"`
-	OCRObservationTimeout                     time.Duration   `env:"OCR_OBSERVATION_TIMEOUT" default:"13s"`
+	OCRObservationTimeout                     time.Duration   `env:"OCR_OBSERVATION_TIMEOUT" default:"12s"`
+	OCRObservationGracePeriod                 time.Duration   `env:"OCR_OBSERVATION_GRACE_PERIOD" default:"1s"`
 	OCRBlockchainTimeout                      time.Duration   `env:"OCR_BLOCKCHAIN_TIMEOUT" default:"20s"`
 	OCRContractSubscribeInterval              time.Duration   `env:"OCR_CONTRACT_SUBSCRIBE_INTERVAL" default:"2m"`
 	OCRContractPollInterval                   time.Duration   `env:"OCR_CONTRACT_POLL_INTERVAL" default:"1m"`
@@ -98,8 +110,8 @@ type ConfigSchema struct {
 	OCRTraceLogging                           bool            `env:"OCR_TRACE_LOGGING" default:"false"`
 	OCRMonitoringEndpoint                     string          `env:"OCR_MONITORING_ENDPOINT"`
 	OperatorContractAddress                   common.Address  `env:"OPERATOR_CONTRACT_ADDRESS"`
-	ORMMaxOpenConns                           int             `env:"ORM_MAX_OPEN_CONNS" default:"10"`
-	ORMMaxIdleConns                           int             `env:"ORM_MAX_IDLE_CONNS" default:"5"`
+	ORMMaxOpenConns                           int             `env:"ORM_MAX_OPEN_CONNS" default:"20"`
+	ORMMaxIdleConns                           int             `env:"ORM_MAX_IDLE_CONNS" default:"10"`
 	P2PAnnounceIP                             net.IP          `env:"P2P_ANNOUNCE_IP"`
 	P2PAnnouncePort                           uint16          `env:"P2P_ANNOUNCE_PORT"`
 	P2PDHTAnnouncementCounterUserPrefix       uint32          `env:"P2P_DHT_ANNOUNCEMENT_COUNTER_USER_PREFIX" default:"0"`
@@ -114,6 +126,7 @@ type ConfigSchema struct {
 	RootDir                                   string          `env:"ROOT" default:"~/.chainlink"`
 	SecureCookies                             bool            `env:"SECURE_COOKIES" default:"true"`
 	SessionTimeout                            models.Duration `env:"SESSION_TIMEOUT" default:"15m"`
+	StatsPusherLogging                        string          `env:"STATS_PUSHER_LOGGING" default:"false"`
 	TriggerFallbackDBPollInterval             time.Duration   `env:"TRIGGER_FALLBACK_DB_POLL_INTERVAL" default:"30s"`
 	TLSCertPath                               string          `env:"TLS_CERT_PATH" `
 	TLSHost                                   string          `env:"CHAINLINK_TLS_HOST" `

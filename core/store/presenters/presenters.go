@@ -35,7 +35,7 @@ type ETHKey struct {
 	Address     string         `json:"address"`
 	EthBalance  *assets.Eth    `json:"ethBalance"`
 	LinkBalance *assets.Link   `json:"linkBalance"`
-	NextNonce   *int64         `json:"nextNonce"`
+	NextNonce   int64          `json:"nextNonce"`
 	LastUsed    *time.Time     `json:"lastUsed"`
 	IsFunding   bool           `json:"isFunding"`
 	CreatedAt   time.Time      `json:"createdAt"`
@@ -100,7 +100,6 @@ type EnvPrinter struct {
 	GasUpdaterTransactionPercentile       uint16          `json:"gasUpdaterTransactionPercentile"`
 	InsecureFastScrypt                    bool            `json:"insecureFastScrypt"`
 	TriggerFallbackDBPollInterval         time.Duration   `json:"jobPipelineDBPollInterval"`
-	JobPipelineMaxTaskDuration            time.Duration   `json:"jobPipelineMaxTaskDuration"`
 	JobPipelineParallelism                uint8           `json:"jobPipelineParallelism"`
 	JobPipelineReaperInterval             time.Duration   `json:"jobPipelineReaperInterval"`
 	JobPipelineReaperThreshold            time.Duration   `json:"jobPipelineReaperThreshold"`
@@ -184,7 +183,6 @@ func NewConfigPrinter(store *store.Store) (ConfigPrinter, error) {
 			GasUpdaterTransactionPercentile:       config.GasUpdaterTransactionPercentile(),
 			InsecureFastScrypt:                    config.InsecureFastScrypt(),
 			TriggerFallbackDBPollInterval:         config.TriggerFallbackDBPollInterval(),
-			JobPipelineMaxTaskDuration:            config.JobPipelineMaxTaskDuration(),
 			JobPipelineParallelism:                config.JobPipelineParallelism(),
 			JobPipelineReaperInterval:             config.JobPipelineReaperInterval(),
 			JobPipelineReaperThreshold:            config.JobPipelineReaperThreshold(),
@@ -596,6 +594,18 @@ type EthTx struct {
 	SentAt   string          `json:"sentAt,omitempty"`
 	To       *common.Address `json:"to,omitempty"`
 	Value    string          `json:"value,omitempty"`
+}
+
+func NewEthTx(tx models.EthTx) EthTx {
+	return EthTx{
+		ID:       tx.ID,
+		Data:     hexutil.Bytes(tx.EncodedPayload),
+		From:     &tx.FromAddress,
+		GasLimit: strconv.FormatUint(tx.GasLimit, 10),
+		State:    string(tx.State),
+		To:       &tx.ToAddress,
+		Value:    tx.Value.String(),
+	}
 }
 
 func NewEthTxFromAttempt(txa models.EthTxAttempt) EthTx {

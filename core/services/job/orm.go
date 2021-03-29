@@ -39,10 +39,11 @@ var (
 type ORM interface {
 	ListenForNewJobs() (postgres.Subscription, error)
 	ListenForDeletedJobs() (postgres.Subscription, error)
-	ClaimUnclaimedJobs(ctx context.Context) ([]SpecDB, error)
-	CreateJob(ctx context.Context, jobSpec *SpecDB, taskDAG pipeline.TaskDAG) error
-	JobsV2() ([]SpecDB, error)
-	FindJob(id int32) (SpecDB, error)
+	ClaimUnclaimedJobs(ctx context.Context) ([]Job, error)
+	CreateJob(ctx context.Context, jobSpec *Job, taskDAG pipeline.TaskDAG) error
+	JobsV2() ([]Job, error)
+	FindJob(id int32) (Job, error)
+	FindJobIDsWithBridge(name string) ([]int32, error)
 	DeleteJob(ctx context.Context, id int32) error
 	RecordError(ctx context.Context, jobID int32, description string)
 	UnclaimJob(ctx context.Context, id int32) error
@@ -58,7 +59,7 @@ type orm struct {
 	advisoryLockClassID int32
 	pipelineORM         pipeline.ORM
 	eventBroadcaster    postgres.EventBroadcaster
-	claimedJobs         map[int32]SpecDB
+	claimedJobs         map[int32]Job
 	claimedJobsMu       *sync.RWMutex
 }
 
@@ -72,7 +73,7 @@ func NewORM(db *gorm.DB, config *storm.Config, pipelineORM pipeline.ORM, eventBr
 		advisoryLockClassID: postgres.AdvisoryLockClassID_JobSpawner,
 		pipelineORM:         pipelineORM,
 		eventBroadcaster:    eventBroadcaster,
-		claimedJobs:         make(map[int32]SpecDB),
+		claimedJobs:         make(map[int32]Job),
 		claimedJobsMu:       new(sync.RWMutex),
 	}
 }
@@ -90,7 +91,7 @@ func (o *orm) ListenForDeletedJobs() (postgres.Subscription, error) {
 }
 
 // ClaimUnclaimedJobs locks all currently unlocked jobs and returns all jobs locked by this process
-func (o *orm) ClaimUnclaimedJobs(ctx context.Context) ([]SpecDB, error) {
+func (o *orm) ClaimUnclaimedJobs(ctx context.Context) ([]Job, error) {
 	o.claimedJobsMu.Lock()
 	defer o.claimedJobsMu.Unlock()
 
@@ -119,11 +120,13 @@ func (o *orm) ClaimUnclaimedJobs(ctx context.Context) ([]SpecDB, error) {
 		args = []interface{}{o.advisoryLockClassID}
 	}
 
-	var newlyClaimedJobs []SpecDB
+	var newlyClaimedJobs []Job
 	err := o.db.
 		Joins(join, args...).
+		Preload("FluxMonitorSpec").
 		Preload("OffchainreportingOracleSpec").
-		Preload("PipelineSpec.PipelineTaskSpecs").
+		Preload("KeeperSpec").
+		Preload("PipelineSpec").
 		Find(&newlyClaimedJobs).Error
 	if err != nil {
 		return nil, errors.Wrap(err, "ClaimUnclaimedJobs failed to load jobs")
@@ -144,9 +147,26 @@ func (o *orm) claimedJobIDs() (ids []int32) {
 	return
 }
 
-func (o *orm) CreateJob(ctx context.Context, jobSpec *SpecDB, taskDAG pipeline.TaskDAG) error {
+func (o *orm) CreateJob(ctx context.Context, jobSpec *Job, taskDAG pipeline.TaskDAG) error {
 	if taskDAG.HasCycles() {
 		return errors.New("task DAG has cycles, which are not permitted")
+	}
+	tasks, err := taskDAG.TasksInDependencyOrder()
+	if err != nil {
+		return err
+	}
+	for _, task := range tasks {
+		if task.Type() == pipeline.TaskTypeBridge {
+			// Bridge must exist
+			name := task.(*pipeline.BridgeTask).Name
+			bt := models.BridgeType{}
+			if err := o.db.First(&bt, "name = ?", name).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return errors.Wrap(pipeline.ErrNoSuchBridge, name)
+				}
+				return err
+			}
+		}
 	}
 
 	ctx, cancel := utils.CombinedContext(ctx, o.config.DatabaseMaximumTxDuration())
@@ -184,11 +204,14 @@ func (o *orm) DeleteJob(ctx context.Context, id int32) error {
 	defer o.claimedJobsMu.Unlock()
 
 	err := o.db.Exec(`
-            WITH deleted_jobs AS (
-            	DELETE FROM jobs WHERE id = ? RETURNING offchainreporting_oracle_spec_id, pipeline_spec_id
-            ),
-            deleted_oracle_specs AS (
+			WITH deleted_jobs AS (
+				DELETE FROM jobs WHERE id = ? RETURNING offchainreporting_oracle_spec_id, pipeline_spec_id, keeper_spec_id
+			),
+			deleted_oracle_specs AS (
 				DELETE FROM offchainreporting_oracle_specs WHERE id IN (SELECT offchainreporting_oracle_spec_id FROM deleted_jobs)
+			),
+			deleted_keeper_specs AS (
+				DELETE FROM keeper_specs WHERE id IN (SELECT keeper_spec_id FROM deleted_jobs)
 			)
 			DELETE FROM pipeline_specs WHERE id IN (SELECT pipeline_spec_id FROM deleted_jobs)
     	`, id).Error
@@ -268,13 +291,15 @@ func (o *orm) RecordError(ctx context.Context, jobID int32, description string) 
 }
 
 // OffChainReportingJobs returns job specs
-func (o *orm) JobsV2() ([]SpecDB, error) {
-	var jobs []SpecDB
+func (o *orm) JobsV2() ([]Job, error) {
+	var jobs []Job
 	err := o.db.
 		Preload("PipelineSpec").
 		Preload("OffchainreportingOracleSpec").
 		Preload("DirectRequestSpec").
+		Preload("FluxMonitorSpec").
 		Preload("JobSpecErrors").
+		Preload("KeeperSpec").
 		Find(&jobs).
 		Error
 	for i := range jobs {
@@ -308,19 +333,49 @@ func loadDynamicConfigVars(cfg *storm.Config, os OffchainReportingOracleSpec) *O
 }
 
 // FindJob returns job by ID
-func (o *orm) FindJob(id int32) (SpecDB, error) {
-	var job SpecDB
+func (o *orm) FindJob(id int32) (Job, error) {
+	var job Job
 	err := o.db.
 		Preload("PipelineSpec").
 		Preload("OffchainreportingOracleSpec").
+		Preload("FluxMonitorSpec").
 		Preload("DirectRequestSpec").
 		Preload("JobSpecErrors").
+		Preload("KeeperSpec").
 		First(&job, "jobs.id = ?", id).
 		Error
 	if job.OffchainreportingOracleSpec != nil {
 		job.OffchainreportingOracleSpec = loadDynamicConfigVars(o.config, *job.OffchainreportingOracleSpec)
 	}
 	return job, err
+}
+
+func (o *orm) FindJobIDsWithBridge(name string) ([]int32, error) {
+	var jobs []Job
+	err := o.db.Preload("PipelineSpec").Find(&jobs).Error
+	if err != nil {
+		return nil, err
+	}
+	var jids []int32
+	for _, job := range jobs {
+		d := pipeline.TaskDAG{}
+		err = d.UnmarshalText([]byte(job.PipelineSpec.DotDagSource))
+		if err != nil {
+			return nil, err
+		}
+		tasks, err := d.TasksInDependencyOrder()
+		if err != nil {
+			return nil, err
+		}
+		for _, task := range tasks {
+			if task.Type() == pipeline.TaskTypeBridge {
+				if task.(*pipeline.BridgeTask).Name == name {
+					jids = append(jids, job.ID)
+				}
+			}
+		}
+	}
+	return jids, nil
 }
 
 // PipelineRunsByJobID returns pipeline runs for a job
@@ -345,7 +400,6 @@ func (o *orm) PipelineRunsByJobID(jobID int32, offset, size int) ([]pipeline.Run
 				Where(`pipeline_task_runs.type != 'result'`).
 				Order("created_at ASC, id ASC")
 		}).
-		Preload("PipelineTaskRuns.PipelineTaskSpec").
 		Joins("INNER JOIN jobs ON pipeline_runs.pipeline_spec_id = jobs.pipeline_spec_id").
 		Where("jobs.id = ?", jobID).
 		Limit(size).
