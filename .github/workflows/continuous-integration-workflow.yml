@@ -100,10 +100,6 @@ jobs:
     steps:
       - name: Checkout the repo
         uses: actions/checkout@v2
-      - name: Install python 3.9
-        uses: actions/setup-python@v2
-        with:
-          python-version: '3.9'
       - name: Login to DockerHub
         uses: docker/login-action@v1
         with:
@@ -372,10 +368,6 @@ jobs:
     steps:
       - name: Checkout the repo
         uses: actions/checkout@v2
-      - name: Install python 3.9
-        uses: actions/setup-python@v2
-        with:
-          python-version: '3.9'
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:
