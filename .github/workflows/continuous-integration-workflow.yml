@@ -63,7 +63,7 @@ jobs:
       - name: Download Go vendor packages
         run: go mod download
       - name: Set up Yarn for Contracts
-        run: yarn compile:native
+        run: yarn setup:contracts
       - name: Setup DB
         run: go run ./core local db preparetest
       - name: Run tests
