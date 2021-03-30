@@ -372,6 +372,10 @@ jobs:
     steps:
       - name: Checkout the repo
         uses: actions/checkout@v2
+        run: |
+          export AGENT_TOOLSDIRECTORY=/opt/hostedtoolcache
+          mkdir /opt/hostedtoolcache
+          sudo chown runner-user:runner-group opt/hostedtoolcache/
       - name: Install python 3.9
         uses: actions/setup-python@v2
         with:
