@@ -8,8 +8,8 @@
 
 SCRIPTPATH="$( cd "$(dirname "$0")" >/dev/null 2>&1 ; cd .. && pwd -P )"
 
-docker run -v $SCRIPTPATH:/contracts \
-    ethereum/solc:0.6.6 --overwrite --optimize --optimize-runs 1000000 --metadata-hash none \
-    -o /contracts/solc/v0.6 \
-    --abi --bin --allow-paths /contracts/src/v0.6,/contracts/src/v0.6/dev,/contracts/src/v0.6/examples,/contracts/src/v0.6/interfaces,/contracts/src/v0.6/vendor \
-    /contracts/src/v0.6/$1
+solc-select use 0.6.6
+solc --overwrite --optimize --optimize-runs 1000000 --metadata-hash none \
+    -o $SCRIPTPATH/solc/v0.6 \
+    --abi --bin --allow-paths $SCRIPTPATH/src/v0.6,$SCRIPTPATH/src/v0.6/dev,$SCRIPTPATH/src/v0.6/examples,$SCRIPTPATH/src/v0.6/interfaces,$SCRIPTPATH/src/v0.6/vendor \
+    $SCRIPTPATH/src/v0.6/$1
