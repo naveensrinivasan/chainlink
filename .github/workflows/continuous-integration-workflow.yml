@@ -63,6 +63,9 @@ jobs:
       - name: Download Go vendor packages
         run: go mod download
       - name: Set up Yarn for Contracts
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
         run: yarn setup:contracts
       - name: Setup DB
         run: go run ./core local db preparetest
