@@ -65,7 +65,7 @@ jobs:
       - name: Install python 3.9
         uses: actions/setup-python@v2
         with:
-          python-version: '3.9'
+          python-version: '3.9.2'
       - name: Setup yarn for contracts
         run: yarn setup:contracts
       - name: Setup DB
@@ -103,7 +103,7 @@ jobs:
       - name: Install python 3.9
         uses: actions/setup-python@v2
         with:
-          python-version: '3.9'
+          python-version: '3.9.2'
       - name: Login to DockerHub
         uses: docker/login-action@v1
         with:
@@ -375,7 +375,7 @@ jobs:
       - name: Install python 3.9
         uses: actions/setup-python@v2
         with:
-          python-version: '3.9'
+          python-version: '3.9.2'
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:
