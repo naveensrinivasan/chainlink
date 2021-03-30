@@ -376,7 +376,6 @@ jobs:
         run: |
           export AGENT_TOOLSDIRECTORY=/opt/hostedtoolcache
           mkdir /opt/hostedtoolcache
-          sudo chown runner-user:runner-group opt/hostedtoolcache/
       - name: Install python 3.9
         uses: actions/setup-python@v2
         with:
