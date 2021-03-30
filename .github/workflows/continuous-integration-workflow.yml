@@ -62,10 +62,11 @@ jobs:
             go-mod-${{ env.CACHE_VERSION }}
       - name: Download Go vendor packages
         run: go mod download
-      - name: Set up Yarn for Contracts
+      - name: Install python 3.9
         uses: actions/setup-python@v2
         with:
           python-version: '3.9'
+      - name: Setup yarn for contracts
         run: yarn setup:contracts
       - name: Setup DB
         run: go run ./core local db preparetest
