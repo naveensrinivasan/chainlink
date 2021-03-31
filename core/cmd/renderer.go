@@ -92,6 +92,8 @@ func (rt RendererTable) Render(v interface{}) error {
 		return rt.renderJobsV2(*typed)
 	case *webPresenters.LogResource:
 		return rt.renderLogResource(*typed)
+	case *webPresenters.ServiceLevelLog:
+		return rt.renderLogPkgConfig(*typed)
 	default:
 		return fmt.Errorf("unable to render object of type %T: %v", typed, typed)
 	}
@@ -102,10 +104,20 @@ func (rt RendererTable) renderLogResource(logResource webPresenters.LogResource)
 	table.Append([]string{
 		logResource.ID,
 		logResource.Level,
-		logResource.Filter,
 		strconv.FormatBool(logResource.SqlEnabled),
 	})
 	render("Logs", table)
+	return nil
+}
+
+func (rt RendererTable) renderLogPkgConfig(serviceLevelLog webPresenters.ServiceLevelLog) error {
+	table := rt.newTable([]string{"ID", "ServiceName", "LogLevel"})
+	table.Append([]string{
+		serviceLevelLog.ID,
+		serviceLevelLog.ServiceName,
+		serviceLevelLog.LogLevel,
+	})
+	render("ServiceLevelLogs", table)
 	return nil
 }
 

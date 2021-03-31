@@ -666,6 +666,15 @@ func (orm *ORM) GetConfigValue(field string, value encoding.TextUnmarshaler) err
 	return value.UnmarshalText([]byte(config.Value))
 }
 
+// GetServiceLogLevel returns the log level for a configured service
+func (orm *ORM) GetServiceLogLevel(serviceName string) (string, error) {
+	config := models.LogConfig{}
+	if err := orm.DB.First(&config, "service_name = ?", serviceName).Error; err != nil {
+		return "", err
+	}
+	return config.LogLevel, nil
+}
+
 // SetConfigValue returns the value for a named configuration entry
 func (orm *ORM) SetConfigValue(field string, value encoding.TextMarshaler) error {
 	name := EnvVarName(field)
@@ -684,6 +693,13 @@ func (orm *ORM) SetConfigStrValue(field string, value string) error {
 	return orm.DB.Where(models.Configuration{Name: name}).
 		Assign(models.Configuration{Name: name, Value: value}).
 		FirstOrCreate(&models.Configuration{}).Error
+}
+
+// SetConfigValue returns the value for a named configuration entry
+func (orm *ORM) SetLogConfigValue(ctx context.Context, serviceName string, level string) error {
+	return orm.DB.WithContext(ctx).Where(models.LogConfig{ServiceName: serviceName}).
+		Assign(models.LogConfig{ServiceName: serviceName, LogLevel: level}).
+		FirstOrCreate(&models.LogConfig{ServiceName: serviceName, LogLevel: level}).Error
 }
 
 // CreateJob saves a job to the database and adds IDs to associated tables.

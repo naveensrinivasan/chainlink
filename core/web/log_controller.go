@@ -18,9 +18,11 @@ type LogController struct {
 }
 
 type LogPatchRequest struct {
-	Level      string `json:"level"`
-	Filter     string `json:"filter"`
-	SqlEnabled *bool  `json:"sqlEnabled"`
+	Level        string `json:"level"`
+	Filter       string `json:"filter"`
+	SqlEnabled   *bool  `json:"sqlEnabled"`
+	ServiceName  string `json:"serviceName"`
+	ServiceLevel string `json:"serviceLevel"`
 }
 
 // Patch sets a log level and enables sql logging for the logger
@@ -31,8 +33,8 @@ func (cc *LogController) Patch(c *gin.Context) {
 		return
 	}
 
-	if request.Level == "" && request.Filter == "" && request.SqlEnabled == nil {
-		jsonAPIError(c, http.StatusInternalServerError, fmt.Errorf("please set either logLevel, logFilter, or logSql as params in order to set the log level"))
+	if request.Level == "" && request.Filter == "" && request.SqlEnabled == nil && request.ServiceName == "" && request.ServiceLevel == "" {
+		jsonAPIError(c, http.StatusInternalServerError, fmt.Errorf("please check request params, no params configured"))
 		return
 	}
 
@@ -51,13 +53,45 @@ func (cc *LogController) Patch(c *gin.Context) {
 		}
 	}
 
-	if request.Filter != "" {
+	if request.ServiceName != "" && request.ServiceLevel != "" {
 		cc.App.GetStore().Config.Set("LOG_FILTER", request.Filter)
 		err := cc.App.GetStore().SetConfigStrValue("LogFilter", request.Filter)
 		if err != nil {
 			jsonAPIError(c, http.StatusInternalServerError, err)
 			return
 		}
+
+		var level zapcore.Level
+		if err := level.UnmarshalText([]byte(request.ServiceLevel)); err != nil {
+			jsonAPIError(c, http.StatusInternalServerError, err)
+			return
+		}
+
+		if err := cc.App.GetApp().SetServiceLogger(request.ServiceName, level.String()); err != nil {
+			jsonAPIError(c, http.StatusInternalServerError, err)
+			return
+		}
+
+		if err := cc.App.GetStore().SetLogConfigValue(c.Request.Context(), request.ServiceName, level.String()); err != nil {
+			jsonAPIError(c, http.StatusInternalServerError, err)
+			return
+		}
+
+		ll, err := cc.App.GetStore().Config.ServiceLogLevel(request.ServiceName)
+		if err != nil {
+			jsonAPIError(c, http.StatusInternalServerError, err)
+			return
+		}
+		response := &presenters.ServiceLevelLog{
+			JAID: presenters.JAID{
+				ID: "log",
+			},
+			ServiceName: request.ServiceName,
+			LogLevel:    ll,
+		}
+
+		jsonAPIResponse(c, response, "log")
+		return
 	}
 
 	if request.SqlEnabled != nil {

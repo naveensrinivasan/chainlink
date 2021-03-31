@@ -159,13 +159,17 @@ func NewApp(client *Client) *cli.App {
 					},
 				},
 				{
-					Name:   "logfilter",
+					Name:   "logpkg",
 					Usage:  "Set package specific logging",
-					Action: client.SetLogFilter,
+					Action: client.SetLogPkg,
 					Flags: []cli.Flag{
-						cli.BoolFlag{
-							Name:  "filter",
-							Usage: "set log filter for package specfic logging",
+						cli.StringFlag{
+							Name:  "pkg",
+							Usage: "set log filter for package specific logging",
+						},
+						cli.StringFlag{
+							Name:  "level",
+							Usage: "set log level for specified pkg",
 						},
 					},
 				},

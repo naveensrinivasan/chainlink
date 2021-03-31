@@ -1254,14 +1254,12 @@ func (cli *Client) SetLogSQL(c *clipkg.Context) (err error) {
 	return err
 }
 
-// SetLogFilter sets the package log filter on the node
-func (cli *Client) SetLogFilter(c *clipkg.Context) (err error) {
-	if !c.Bool("filter") {
-		return cli.errorOut(errors.New("expecting a comma separated list of filter values (ex: gas_updater:debug,flux_monitor:warn,offchain_reporting:error,vfr:debug"))
-	}
+// SetLogPkg sets the package log filter on the node
+func (cli *Client) SetLogPkg(c *clipkg.Context) (err error) {
+	pkg := c.String("pkg")
+	level := c.String("level")
 
-	filter := c.Args().Get(0)
-	request := web.LogPatchRequest{Filter: filter}
+	request := web.LogPatchRequest{ServiceName: pkg, ServiceLevel: level}
 	requestData, err := json.Marshal(request)
 	if err != nil {
 		return cli.errorOut(err)
@@ -1270,7 +1268,7 @@ func (cli *Client) SetLogFilter(c *clipkg.Context) (err error) {
 	buf := bytes.NewBuffer(requestData)
 	resp, err := cli.HTTP.Patch("/v2/log", buf)
 	if err != nil {
-		return cli.errorOut(errors.Wrap(err, "from toggling debug logging"))
+		return cli.errorOut(errors.Wrap(err, "set pkg specific logging levels"))
 	}
 	defer func() {
 		if cerr := resp.Body.Close(); cerr != nil {
@@ -1278,7 +1276,7 @@ func (cli *Client) SetLogFilter(c *clipkg.Context) (err error) {
 		}
 	}()
 
-	var lR webPresenter.LogResource
+	var lR webPresenter.ServiceLevelLog
 	err = cli.renderAPIResponse(resp, &lR)
 	return err
 }

@@ -2,6 +2,7 @@ package chainlink
 
 import (
 	"context"
+	"encoding/json"
 	stderr "errors"
 	"fmt"
 	"os"
@@ -39,8 +40,11 @@ import (
 	"github.com/smartcontractkit/chainlink/core/utils"
 	ocrtypes "github.com/smartcontractkit/libocr/offchainreporting/types"
 	"go.uber.org/multierr"
+	"go.uber.org/zap/zapcore"
 	"gopkg.in/guregu/null.v4"
 )
+
+var serviceLoggers2 = map[string]interface{}{}
 
 //go:generate mockery --name ExternalInitiatorManager --output ../../internal/mocks/ --case=underscore
 type (
@@ -75,10 +79,12 @@ func (c *headTrackableCallback) OnNewLongestChain(context.Context, models.Head) 
 type Application interface {
 	Start() error
 	Stop() error
+	GetApp() *ChainlinkApplication
 	GetStore() *strpkg.Store
 	GetJobORM() job.ORM
 	GetExternalInitiatorManager() ExternalInitiatorManager
 	GetStatsPusher() synchronization.StatsPusher
+	GetGlobalLogger() *logger.Logger
 	WakeSessionReaper()
 	AddJob(job models.JobSpec) error
 	AddJobV2(ctx context.Context, job job.Job, name null.String) (int32, error)
@@ -119,9 +125,14 @@ type ChainlinkApplication struct {
 	balanceMonitor           services.BalanceMonitor
 	explorerClient           synchronization.ExplorerClient
 	subservices              []StartCloser
+	GlobalLogger             *logger.Logger
 
 	started     bool
 	startStopMu sync.Mutex
+}
+
+func (app *ChainlinkApplication) GetApp() *ChainlinkApplication {
+	return app
 }
 
 // NewApplication initializes a new store if one is not already
@@ -166,6 +177,16 @@ func NewApplication(config *orm.Config, ethClient eth.Client, advisoryLocker pos
 		subservices = append(subservices, databaseBackup)
 	} else {
 		logger.Info("DatabaseBackup: periodic database backups are disabled")
+	}
+
+	globalLogger := config.CreateProductionLogger()
+	serviceLogLevels, err := getServiceLogLevels(config)
+	if err != nil {
+		logger.Fatalf("error getting log levels: %v", err)
+	}
+	headTrackerLogger, err := globalLogger.InitServiceLevelLogger(config.RootDir(), logger.HeadTracker, config.JSONConsole(), config.LogToDisk(), serviceLogLevels[logger.HeadTracker], serviceLoggers2)
+	if err != nil {
+		logger.Fatal("error starting logger for head tracker")
 	}
 
 	runExecutor := services.NewRunExecutor(store, statsPusher)
@@ -269,6 +290,7 @@ func NewApplication(config *orm.Config, ethClient eth.Client, advisoryLocker pos
 		shutdownSignal:           shutdownSignal,
 		balanceMonitor:           balanceMonitor,
 		explorerClient:           explorerClient,
+		GlobalLogger:             globalLogger,
 		// NOTE: Can keep things clean by putting more things in subservices
 		// instead of manually start/closing
 		subservices: subservices,
@@ -290,9 +312,54 @@ func NewApplication(config *orm.Config, ethClient eth.Client, advisoryLocker pos
 		}}
 		headTrackables = append(headTrackables, headTrackable)
 	}
-	app.HeadTracker = services.NewHeadTracker(store, headTrackables)
+	app.HeadTracker = services.NewHeadTracker(headTrackerLogger, store, headTrackables)
+	serviceLoggers2[logger.HeadTracker] = app.HeadTracker
 
 	return app, nil
+}
+
+// SetServiceLogger sets the logger for a given service
+func (app *ChainlinkApplication) SetServiceLogger(serviceName string, level string) error {
+	var ll zapcore.Level
+	if err := ll.UnmarshalText([]byte(level)); err != nil {
+		return err
+	}
+
+	b, err := json.Marshal(serviceLoggers2[serviceName])
+	if err != nil {
+		panic(err)
+	}
+
+	switch serviceName {
+	case logger.HeadTracker:
+		var ht services.HeadTracker
+		err := json.Unmarshal(b, &ht)
+		if err != nil {
+			return err
+		}
+		newL, err := app.GlobalLogger.InitServiceLevelLogger(app.GetStore().
+			Config.RootDir(), serviceName, app.GetStore().Config.JSONConsole(), app.GetStore().Config.LogToDisk(),
+			ll.String(), serviceLoggers2[serviceName])
+
+		ht.SetLogger(newL)
+		//TODO: Implement other services
+	}
+
+	return nil
+}
+
+// getServiceLogLevels retrieves all service log levels from the db
+func getServiceLogLevels(config *orm.Config) (map[string]string, error) {
+	serviceLogLevels := make(map[string]string)
+
+	headTracker, err := config.ServiceLogLevel(logger.HeadTracker)
+	if err != nil {
+		logger.Fatal("error geetting service logger for head tracker")
+	}
+
+	serviceLogLevels[logger.HeadTracker] = headTracker
+
+	return serviceLogLevels, nil
 }
 
 func setupConfig(config *orm.Config, store *strpkg.Store) {
@@ -465,6 +532,11 @@ func (app *ChainlinkApplication) stop() error {
 // GetStore returns the pointer to the store for the ChainlinkApplication.
 func (app *ChainlinkApplication) GetStore() *strpkg.Store {
 	return app.Store
+}
+
+// GetGlobalLogger returns the pointer to the global logger for the ChainlinkApplication.
+func (app *ChainlinkApplication) GetGlobalLogger() *logger.Logger {
+	return app.GlobalLogger
 }
 
 func (app *ChainlinkApplication) GetJobORM() job.ORM {

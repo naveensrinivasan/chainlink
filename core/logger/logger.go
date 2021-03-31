@@ -18,6 +18,11 @@ type Logger struct {
 	*zap.SugaredLogger
 }
 
+// Constants for service names for package specific logging configuration
+var (
+	HeadTracker = "head_tracker"
+)
+
 // Write logs a message at the Info level and returns the length
 // of the given bytes.
 func (l *Logger) Write(b []byte) (int, error) {
@@ -72,7 +77,7 @@ func CreateLogger(zl *zap.SugaredLogger) *Logger {
 // CreateProductionLogger returns a log config for the passed directory
 // with the given LogLevel and customizes stdout for pretty printing.
 func CreateProductionLogger(
-	dir string, jsonConsole bool, lvl zapcore.Level, toDisk bool, logFiltering string) *Logger {
+	dir string, jsonConsole bool, lvl zapcore.Level, toDisk bool) *Logger {
 	config := zap.NewProductionConfig()
 	if !jsonConsole {
 		config.OutputPaths = []string{"pretty://console"}
@@ -86,14 +91,33 @@ func CreateProductionLogger(
 
 	zl, err := config.Build(zap.AddCallerSkip(1))
 
-	if logFiltering != "" {
-		zl = zl.WithOptions(zap.WrapCore(func(next zapcore.Core) zapcore.Core {
-			return NewFilteringCore(next, logFiltering)
-		}))
-	}
-
 	if err != nil {
 		log.Fatal(err)
 	}
 	return CreateLogger(zl.Sugar())
+}
+
+func (l *Logger) InitServiceLevelLogger(dir string, serviceName string, jsonConsole bool, toDisk bool, logLevel string, service interface{}) (*zap.SugaredLogger, error) {
+	config := zap.NewProductionConfig()
+	if !jsonConsole {
+		config.OutputPaths = []string{"pretty://console"}
+	}
+	if toDisk {
+		destination := logFileURI(dir)
+		config.OutputPaths = append(config.OutputPaths, destination)
+		config.ErrorOutputPaths = append(config.ErrorOutputPaths, destination)
+	}
+
+	var ll zapcore.Level
+	if err := ll.UnmarshalText([]byte(logLevel)); err != nil {
+		return nil, err
+	}
+	config.Level.SetLevel(ll)
+
+	zl, err := config.Build(zap.AddCallerSkip(1))
+	if err != nil {
+		return nil, err
+	}
+
+	return zl.Named(serviceName).Sugar(), nil
 }

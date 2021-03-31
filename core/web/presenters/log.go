@@ -11,3 +11,14 @@ type LogResource struct {
 func (r LogResource) GetName() string {
 	return "logs"
 }
+
+type ServiceLevelLog struct {
+	JAID
+	ServiceName string `json:"serviceName"`
+	LogLevel    string `json:"logLevel"`
+}
+
+// GetName implements the api2go EntityNamer interface
+func (r ServiceLevelLog) GetName() string {
+	return "serviceLevelLogs"
+}
