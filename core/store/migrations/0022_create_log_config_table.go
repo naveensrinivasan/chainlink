@@ -5,7 +5,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const up20 = `
+const up22 = `
 		CREATE TYPE service AS ENUM (
 			'directrequest',
 			'fluxmonitor',
@@ -51,8 +51,8 @@ const up20 = `
 		);
 	`
 
-const down20 = `
-	DROP TABLE IF EXISTS log_config;
+const down22 = `
+	DROP TABLE IF EXISTS log_conf	ig;
 
 	DROP TABLE IF EXISTS log_services;
 `
@@ -61,10 +61,10 @@ func init() {
 	Migrations = append(Migrations, &gormigrate.Migration{
 		ID: "0020_create_log_config_table",
 		Migrate: func(db *gorm.DB) error {
-			return db.Exec(up20).Error
+			return db.Exec(up22).Error
 		},
 		Rollback: func(db *gorm.DB) error {
-			return db.Exec(down20).Error
+			return db.Exec(down22).Error
 		},
 	})
 }
