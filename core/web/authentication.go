@@ -74,7 +74,6 @@ func authenticatedEI(c *gin.Context) (*models.ExternalInitiator, bool) {
 
 // AuthenticateByToken authenticates a User by their API token.
 func AuthenticateByToken(store AuthStorer, c *gin.Context) error {
-	return nil
 	token := &auth.Token{
 		AccessKey: c.GetHeader(APIKey),
 		Secret:    c.GetHeader(APISecret),
@@ -100,7 +99,6 @@ func AuthenticateByToken(store AuthStorer, c *gin.Context) error {
 var _ authType = AuthenticateByToken
 
 func AuthenticateBySession(store AuthStorer, c *gin.Context) error {
-	return nil
 	session := sessions.Default(c)
 	sessionID, ok := session.Get(SessionIDKey).(string)
 	if !ok {
