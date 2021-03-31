@@ -3,7 +3,6 @@ package web
 import (
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/smartcontractkit/chainlink/core/logger"
@@ -25,6 +24,19 @@ type LogPatchRequest struct {
 	ServiceLevel string `json:"serviceLevel"`
 }
 
+// Get retrieves the current log config settings
+func (cc *LogController) Get(c *gin.Context) {
+	response := &presenters.LogResource{
+		JAID: presenters.JAID{
+			ID: "log",
+		},
+		Level:      cc.App.GetStore().Config.LogLevel().String(),
+		SqlEnabled: cc.App.GetStore().Config.LogSQLStatements(),
+	}
+
+	jsonAPIResponse(c, response, "log")
+}
+
 // Patch sets a log level and enables sql logging for the logger
 func (cc *LogController) Patch(c *gin.Context) {
 	request := &LogPatchRequest{}
@@ -42,12 +54,10 @@ func (cc *LogController) Patch(c *gin.Context) {
 		var ll zapcore.Level
 		err := ll.UnmarshalText([]byte(request.Level))
 		if err != nil {
-			jsonAPIError(c, http.StatusInternalServerError, err)
+			jsonAPIError(c, http.StatusBadRequest, err)
 			return
 		}
-		cc.App.GetStore().Config.Set("LOG_LEVEL", ll.String())
-		err = cc.App.GetStore().SetConfigStrValue("LogLevel", ll.String())
-		if err != nil {
+		if err = cc.App.GetStore().Config.SetLogLevel(c.Request.Context(), ll.String()); err != nil {
 			jsonAPIError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -95,9 +105,7 @@ func (cc *LogController) Patch(c *gin.Context) {
 	}
 
 	if request.SqlEnabled != nil {
-		cc.App.GetStore().Config.Set("LOG_SQL", request.SqlEnabled)
-		err := cc.App.GetStore().SetConfigStrValue("LogSQLStatements", strconv.FormatBool(*request.SqlEnabled))
-		if err != nil {
+		if err := cc.App.GetStore().Config.SetLogSQLStatements(c.Request.Context(), *request.SqlEnabled); err != nil {
 			jsonAPIError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -105,7 +113,7 @@ func (cc *LogController) Patch(c *gin.Context) {
 	}
 
 	// Set default logger with new configurations
-	logger.Default = cc.App.GetStore().Config.CreateProductionLogger()
+	logger.SetLogger(cc.App.GetStore().Config.CreateProductionLogger())
 
 	response := &presenters.LogResource{
 		JAID: presenters.JAID{

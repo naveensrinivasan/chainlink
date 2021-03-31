@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -675,6 +676,20 @@ func (orm *ORM) GetServiceLogLevel(serviceName string) (string, error) {
 	return config.LogLevel, nil
 }
 
+// GetConfigBoolValue returns a boolean value for a named configuration entry
+func (orm *ORM) GetConfigBoolValue(field string) (*bool, error) {
+	name := EnvVarName(field)
+	config := models.Configuration{}
+	if err := orm.DB.First(&config, "name = ?", name).Error; err != nil {
+		return nil, err
+	}
+	value, err := strconv.ParseBool(config.Value)
+	if err != nil {
+		return nil, err
+	}
+	return &value, nil
+}
+
 // SetConfigValue returns the value for a named configuration entry
 func (orm *ORM) SetConfigValue(field string, value encoding.TextMarshaler) error {
 	name := EnvVarName(field)
@@ -688,9 +703,9 @@ func (orm *ORM) SetConfigValue(field string, value encoding.TextMarshaler) error
 }
 
 // SetConfigValue returns the value for a named configuration entry
-func (orm *ORM) SetConfigStrValue(field string, value string) error {
+func (orm *ORM) SetConfigStrValue(ctx context.Context, field string, value string) error {
 	name := EnvVarName(field)
-	return orm.DB.Where(models.Configuration{Name: name}).
+	return orm.DB.WithContext(ctx).Where(models.Configuration{Name: name}).
 		Assign(models.Configuration{Name: name, Value: value}).
 		FirstOrCreate(&models.Configuration{}).Error
 }

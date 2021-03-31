@@ -5,13 +5,13 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -90,6 +90,7 @@ func TestIntegration_HttpRequestWithHeaders(t *testing.T) {
 	config, cfgCleanup := cltest.NewConfig(t)
 	defer cfgCleanup()
 	config.Set("ADMIN_CREDENTIALS_FILE", "")
+	config.Set("ETH_HEAD_TRACKER_MAX_BUFFER_SIZE", 99)
 
 	rpcClient, gethClient, sub, assertMocksCalled := cltest.NewEthMocks(t)
 	defer assertMocksCalled()
@@ -820,6 +821,11 @@ func TestIntegration_FluxMonitor_Deviation(t *testing.T) {
 		Return(cltest.MustGenericEncode([]string{"uint256"}, big.NewInt(0)), nil).Once()
 	cltest.MockFluxAggCall(gethClient, cltest.FluxAggAddress, "maxSubmissionValue").
 		Return(cltest.MustGenericEncode([]string{"uint256"}, big.NewInt(10000000)), nil).Once()
+	cltest.MockFluxAggCall(gethClient, cltest.FluxAggAddress, "latestRoundData").
+		Return(cltest.MustGenericEncode(
+			[]string{"uint80", "int256", "uint256", "uint256", "uint80"},
+			big.NewInt(2), big.NewInt(1), big.NewInt(1), big.NewInt(1), big.NewInt(1),
+		), nil).Maybe() // Called 3-4 times.
 
 	// Configure fake Eth Node to return 10,000 cents when FM initiates price.
 	minPayment := app.Store.Config.MinimumContractPayment().ToInt().Uint64()
@@ -830,15 +836,6 @@ func TestIntegration_FluxMonitor_Deviation(t *testing.T) {
 	require.NoError(t, err)
 	cltest.MockFluxAggCall(gethClient, cltest.FluxAggAddress, "getOracles").
 		Return(getOraclesResult, nil).Once()
-
-	// latestRoundData()
-	lrdTypes := []string{"uint80", "int256", "uint256", "uint256", "uint80"}
-	latestRoundDataResult, err := cltest.GenericEncode(
-		lrdTypes, big.NewInt(2), big.NewInt(1), big.NewInt(1), big.NewInt(1), big.NewInt(1),
-	)
-	require.NoError(t, err)
-	cltest.MockFluxAggCall(gethClient, cltest.FluxAggAddress, "latestRoundData").
-		Return(latestRoundDataResult, nil).Once()
 
 	// oracleRoundState()
 	result := cltest.MakeRoundStateReturnData(2, true, 10000, 7, 0, availableFunds, minPayment, 1)
@@ -963,15 +960,18 @@ func TestIntegration_FluxMonitor_NewRound(t *testing.T) {
 		Return(cltest.MustGenericEncode([]string{"uint256"}, big.NewInt(0)), nil).Once()
 	cltest.MockFluxAggCall(gethClient, cltest.FluxAggAddress, "maxSubmissionValue").
 		Return(cltest.MustGenericEncode([]string{"uint256"}, big.NewInt(10000000)), nil).Once()
+	require.NoError(t, err)
+	cltest.MockFluxAggCall(gethClient, cltest.FluxAggAddress, "latestRoundData").
+		Return(cltest.MustGenericEncode(
+			[]string{"uint80", "int256", "uint256", "uint256", "uint80"},
+			big.NewInt(2), big.NewInt(1), big.NewInt(1), big.NewInt(1), big.NewInt(1),
+		), nil).Maybe() // Called 3-4 times.
 
 	// Configure fake Eth Node to return 10,000 cents when FM initiates price.
 	getOraclesResult, err := cltest.GenericEncode([]string{"address[]"}, []common.Address{})
 	require.NoError(t, err)
 	cltest.MockFluxAggCall(gethClient, cltest.FluxAggAddress, "getOracles").
 		Return(getOraclesResult, nil).Once()
-
-	cltest.MockFluxAggCall(gethClient, cltest.FluxAggAddress, "latestRoundData").
-		Return(nil, errors.New("first round")).Once()
 
 	result := cltest.MakeRoundStateReturnData(2, true, 10000, 7, 0, availableFunds, minPayment, 1)
 	cltest.MockFluxAggCall(gethClient, cltest.FluxAggAddress, "oracleRoundState").
@@ -1446,6 +1446,15 @@ isBootstrapPeer    = true
 
 	var jids []int32
 	var servers, slowServers = make([]*httptest.Server, 4), make([]*httptest.Server, 4)
+	// We expect metadata of:
+	//  latestAnswer:nil // First call
+	//  latestAnswer:0
+	//  latestAnswer:10
+	//  latestAnswer:20
+	//  latestAnswer:30
+	expectedMeta := map[string]struct{}{
+		"0": {}, "10": {}, "20": {}, "30": {},
+	}
 	for i := 0; i < 4; i++ {
 		err = apps[i].StartAndConnect()
 		require.NoError(t, err)
@@ -1459,10 +1468,22 @@ isBootstrapPeer    = true
 		}))
 		defer slowServers[i].Close()
 		servers[i] = httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+			b, err := ioutil.ReadAll(req.Body)
+			require.NoError(t, err)
+			var m models.BridgeMetaDataJSON
+			require.NoError(t, json.Unmarshal(b, &m))
+			if m.Meta.LatestAnswer != nil && m.Meta.UpdatedAt != nil {
+				delete(expectedMeta, m.Meta.LatestAnswer.String())
+			}
 			res.WriteHeader(http.StatusOK)
 			res.Write([]byte(`{"data":10}`))
 		}))
 		defer servers[i].Close()
+		u, _ := url.Parse(servers[i].URL)
+		apps[i].Store.CreateBridgeType(&models.BridgeType{
+			Name: models.TaskType(fmt.Sprintf("bridge%d", i)),
+			URL:  models.WebURL(*u),
+		})
 
 		// Note we need: observationTimeout + observationGracePeriod + DeltaGrace (500ms) < DeltaRound (1s)
 		// So 200ms + 200ms + 500ms < 1s
@@ -1482,7 +1503,7 @@ contractConfigConfirmations = 1
 contractConfigTrackerPollInterval = "1s"
 observationSource = """
     // data source 1
-    ds1          [type=http method=GET url="%s"];
+    ds1          [type=bridge name="%s"];
     ds1_parse    [type=jsonparse path="data"];
     ds1_multiply [type=multiply times=%d];
 
@@ -1496,7 +1517,7 @@ observationSource = """
 
 	answer1 [type=median index=0];
 """
-`, ocrContractAddress, bootstrapPeerID, kbs[i].ID, transmitters[i], servers[i].URL, i, slowServers[i].URL, i))
+`, ocrContractAddress, bootstrapPeerID, kbs[i].ID, transmitters[i], fmt.Sprintf("bridge%d", i), i, slowServers[i].URL, i))
 		require.NoError(t, err)
 		jid, err := apps[i].AddJobV2(context.Background(), ocrJob, null.NewString("testocr", true))
 		require.NoError(t, err)
@@ -1510,8 +1531,9 @@ observationSource = """
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			pr := cltest.WaitForPipelineComplete(t, ic, jids[ic], apps[ic].GetJobORM(), 1*time.Minute, 1*time.Second)
-			jb, err := pr.Outputs.MarshalJSON()
+			// Want at least 2 runs so we see all the metadata.
+			pr := cltest.WaitForPipelineComplete(t, ic, jids[ic], 2, apps[ic].GetJobORM(), 1*time.Minute, 1*time.Second)
+			jb, err := pr[0].Outputs.MarshalJSON()
 			require.NoError(t, err)
 			assert.Equal(t, []byte(fmt.Sprintf("[\"%d\"]", 10*ic)), jb)
 			require.NoError(t, err)
@@ -1541,6 +1563,7 @@ observationSource = """
 			require.Len(t, j.JobSpecErrors, ignore)
 		}
 	}
+	assert.Len(t, expectedMeta, 0, "expected metadata %v", expectedMeta)
 }
 
 func TestIntegration_GasUpdater(t *testing.T) {
