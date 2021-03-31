@@ -84,7 +84,6 @@ type Application interface {
 	GetJobORM() job.ORM
 	GetExternalInitiatorManager() ExternalInitiatorManager
 	GetStatsPusher() synchronization.StatsPusher
-	GetGlobalLogger() *logger.Logger
 	WakeSessionReaper()
 	AddJob(job models.JobSpec) error
 	AddJobV2(ctx context.Context, job job.Job, name null.String) (int32, error)
@@ -532,11 +531,6 @@ func (app *ChainlinkApplication) stop() error {
 // GetStore returns the pointer to the store for the ChainlinkApplication.
 func (app *ChainlinkApplication) GetStore() *strpkg.Store {
 	return app.Store
-}
-
-// GetGlobalLogger returns the pointer to the global logger for the ChainlinkApplication.
-func (app *ChainlinkApplication) GetGlobalLogger() *logger.Logger {
-	return app.GlobalLogger
 }
 
 func (app *ChainlinkApplication) GetJobORM() job.ORM {
