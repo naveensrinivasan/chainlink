@@ -65,7 +65,7 @@ func (cc *LogController) Patch(c *gin.Context) {
 
 	if request.ServiceName != "" && request.ServiceLevel != "" {
 		cc.App.GetStore().Config.Set("LOG_FILTER", request.Filter)
-		err := cc.App.GetStore().SetConfigStrValue("LogFilter", request.Filter)
+		err := cc.App.GetStore().SetConfigStrValue(c.Request.Context(), "LogFilter", request.Filter)
 		if err != nil {
 			jsonAPIError(c, http.StatusInternalServerError, err)
 			return
@@ -120,7 +120,6 @@ func (cc *LogController) Patch(c *gin.Context) {
 			ID: "log",
 		},
 		Level:      cc.App.GetStore().Config.LogLevel().String(),
-		Filter:     cc.App.GetStore().Config.LogFilter(),
 		SqlEnabled: cc.App.GetStore().Config.LogSQLStatements(),
 	}
 
