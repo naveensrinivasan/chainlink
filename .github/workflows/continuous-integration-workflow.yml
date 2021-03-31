@@ -62,10 +62,8 @@ jobs:
             go-mod-${{ env.CACHE_VERSION }}
       - name: Download Go vendor packages
         run: go mod download
-      - name: Install python 3.9
-        uses: actions/setup-python@v2
-        with:
-          python-version: '3.9'
+      - name: Get python version
+        run: python --version
       - name: Setup yarn for contracts
         run: yarn setup:contracts
       - name: Setup DB
@@ -100,10 +98,6 @@ jobs:
     steps:
       - name: Checkout the repo
         uses: actions/checkout@v2
-      - name: Install python 3.9
-        uses: actions/setup-python@v2
-        with:
-          python-version: '3.9'
       - name: Login to DockerHub
         uses: docker/login-action@v1
         with:
