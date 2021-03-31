@@ -133,31 +133,3 @@ func TestLogController_PatchLogConfig(t *testing.T) {
 		}
 	}
 }
-
-func TestLogController_SetLogFilter(t *testing.T) {
-	t.Parallel()
-
-	rpcClient, gethClient, _, assertMocksCalled := cltest.NewEthMocksWithStartupAssertions(t)
-	defer assertMocksCalled()
-	app, cleanup := cltest.NewApplicationWithKey(t,
-		eth.NewClientWith(rpcClient, gethClient),
-	)
-	defer cleanup()
-	require.NoError(t, app.Start())
-	client := app.NewHTTPClient()
-
-	logFilterStr := "gas_updater:debug,flux_monitor:warn,offchain_reporting:error,vfr:debug"
-	request := web.LogPatchRequest{Filter: logFilterStr}
-
-	requestData, _ := json.Marshal(request)
-	buf := bytes.NewBuffer(requestData)
-
-	resp, cleanup := client.Patch("/v2/log", buf)
-	defer cleanup()
-	cltest.AssertServerResponse(t, resp, http.StatusOK)
-
-	lR := presenters.LogResource{}
-	require.NoError(t, cltest.ParseJSONAPIResponse(t, resp, &lR))
-	assert.Equal(t, logFilterStr, lR.Filter)
-	assert.Equal(t, logFilterStr, app.GetStore().Config.LogFilter())
-}

@@ -72,17 +72,17 @@ func (cc *LogController) Patch(c *gin.Context) {
 		}
 
 		var level zapcore.Level
-		if err := level.UnmarshalText([]byte(request.ServiceLevel)); err != nil {
+		if err = level.UnmarshalText([]byte(request.ServiceLevel)); err != nil {
 			jsonAPIError(c, http.StatusInternalServerError, err)
 			return
 		}
 
-		if err := cc.App.GetApp().SetServiceLogger(request.ServiceName, level.String()); err != nil {
+		if err = cc.App.GetApp().SetServiceLogger(request.ServiceName, level.String()); err != nil {
 			jsonAPIError(c, http.StatusInternalServerError, err)
 			return
 		}
 
-		if err := cc.App.GetStore().SetLogConfigValue(c.Request.Context(), request.ServiceName, level.String()); err != nil {
+		if err = cc.App.GetStore().SetLogConfigValue(c.Request.Context(), request.ServiceName, level.String()); err != nil {
 			jsonAPIError(c, http.StatusInternalServerError, err)
 			return
 		}

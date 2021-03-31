@@ -7,6 +7,7 @@ import (
 	big "math/big"
 
 	chainlink "github.com/smartcontractkit/chainlink/core/services/chainlink"
+	store "github.com/smartcontractkit/chainlink/core/store"
 
 	job "github.com/smartcontractkit/chainlink/core/services/job"
 
@@ -17,8 +18,6 @@ import (
 	null "gopkg.in/guregu/null.v4"
 
 	packr "github.com/gobuffalo/packr"
-
-	store "github.com/smartcontractkit/chainlink/core/store"
 
 	synchronization "github.com/smartcontractkit/chainlink/core/services/synchronization"
 
@@ -232,6 +231,22 @@ func (_m *Application) GetStatsPusher() synchronization.StatsPusher {
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(synchronization.StatsPusher)
+		}
+	}
+
+	return r0
+}
+
+// GetApp retrieves the application reference
+func (_m *Application) GetApp() *chainlink.Application {
+	ret := _m.Called()
+
+	var r0 *chainlink.Application
+	if rf, ok := ret.Get(0).(func() *chainlink.Application); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*chainlink.Application)
 		}
 	}
 
