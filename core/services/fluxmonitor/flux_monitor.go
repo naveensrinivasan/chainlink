@@ -920,7 +920,7 @@ func (p *PollingDeviationChecker) respondToNewRoundLog(log flux_aggregator_wrapp
 	if err != nil {
 		l.Warnw("Couldn't read latest round data for request meta", "err", err)
 	} else {
-		metaDataForBridge, err = models.BridgeMetaData(lrd.Answer, lrd.UpdatedAt)
+		metaDataForBridge, err = models.MarshalBridgeMetaData(lrd.Answer, lrd.UpdatedAt)
 		if err != nil {
 			l.Warnw("Error marshalling roundState for request meta", "err", err)
 		}
@@ -1057,7 +1057,7 @@ func (p *PollingDeviationChecker) pollIfEligible(thresholds DeviationThresholds)
 	if err != nil {
 		l.Warnw("Couldn't read latest round data for request meta", "err", err)
 	} else {
-		metaDataForBridge, err = models.BridgeMetaData(lrd.Answer, lrd.UpdatedAt)
+		metaDataForBridge, err = models.MarshalBridgeMetaData(lrd.Answer, lrd.UpdatedAt)
 		if err != nil {
 			l.Warnw("Error marshalling roundState for request meta", "err", err)
 		}
