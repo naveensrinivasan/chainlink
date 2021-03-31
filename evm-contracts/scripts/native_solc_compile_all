@@ -2,7 +2,7 @@
 
 SCRIPTPATH="$( cd "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
 
-pip install solc-select
+python3 -m pip install solc-select
 solc-select install 0.6.6
 solc-select install 0.7.6
 

@@ -62,9 +62,6 @@ jobs:
             go-mod-${{ env.CACHE_VERSION }}
       - name: Download Go vendor packages
         run: go mod download
-      - name: Get python version
-        run: python --version
-        run: python3 --version
       - name: Setup yarn for contracts
         run: yarn setup:contracts
       - name: Setup DB
