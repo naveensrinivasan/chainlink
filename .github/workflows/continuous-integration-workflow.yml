@@ -62,7 +62,7 @@ jobs:
             go-mod-${{ env.CACHE_VERSION }}
       - name: Download Go vendor packages
         run: go mod download
-      - name: Setup yarn for contracts
+      - name: Set up Yarn for Contracts
         run: yarn setup:contracts && yarn workspace @chainlink/contracts compile:native
       - name: Setup DB
         run: go run ./core local db preparetest
