@@ -83,7 +83,6 @@ type ConfigSchema struct {
 	ExplorerAccessKey                         string          `env:"EXPLORER_ACCESS_KEY"`
 	ExplorerSecret                            string          `env:"EXPLORER_SECRET"`
 	LogLevel                                  LogLevel        `env:"LOG_LEVEL" default:"info"`
-	LogFilter                                 LogLevel        `env:"LOG_FILTER" default:"gas_updater:debug,flux_monitor:debug,offchain_reporting:debug,vfr:debug"`
 	LogToDisk                                 bool            `env:"LOG_TO_DISK" default:"true"`
 	LogSQLStatements                          bool            `env:"LOG_SQL" default:"false"`
 	LogSQLMigrations                          bool            `env:"LOG_SQL_MIGRATIONS" default:"true"`
