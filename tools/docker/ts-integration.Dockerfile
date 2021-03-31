@@ -36,7 +36,6 @@ COPY tools/ci-ts tools/ci-ts
 # install deps
 RUN yarn install
 RUN tools/bin/restore-solc-cache
-RUN apt-get install -y python3 python3-pip
 
 # setup contracts
 RUN yarn setup:contracts
