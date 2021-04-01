@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/smartcontractkit/chainlink/core/services/eth"
 
 	"github.com/smartcontractkit/chainlink/core/internal/cltest"
@@ -88,7 +89,7 @@ func TestJobSubscriber_AddJob_RemoveJob(t *testing.T) {
 	defer assertMocksCalled()
 	store.EthClient = eth.NewClientWith(nil, gethClient)
 	gethClient.On("SubscribeFilterLogs", mock.Anything, mock.Anything, mock.Anything).Maybe().Return(cltest.EmptyMockSubscription(), nil)
-	gethClient.On("FilterLogs", mock.Anything, mock.Anything).Maybe().Return([]models.Log{}, nil)
+	gethClient.On("FilterLogs", mock.Anything, mock.Anything).Maybe().Return([]types.Log{}, nil)
 
 	runManager := new(mocks.RunManager)
 	jobSubscriber := services.NewJobSubscriber(store, runManager)
@@ -150,7 +151,7 @@ func TestJobSubscriber_Connect_Disconnect(t *testing.T) {
 	defer gethClient.AssertExpectations(t)
 	store.EthClient = eth.NewClientWith(nil, gethClient)
 	gethClient.On("SubscribeFilterLogs", mock.Anything, mock.Anything, mock.Anything).Maybe().Return(cltest.EmptyMockSubscription(), nil)
-	gethClient.On("FilterLogs", mock.Anything, mock.Anything).Maybe().Return([]models.Log{}, nil)
+	gethClient.On("FilterLogs", mock.Anything, mock.Anything).Maybe().Return([]types.Log{}, nil)
 
 	jobSpec1 := cltest.NewJobWithLogInitiator()
 	jobSpec2 := cltest.NewJobWithLogInitiator()
