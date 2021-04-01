@@ -19,7 +19,7 @@ import (
 )
 
 // TestCheckContractHashesFromLastGoGenerate compares the abi and bytecode of the
-// contract artifacts in evm-contracts/abi with the abi and bytecode stored in the
+// contract artifacts in evm-contracts/solc with the abi and bytecode stored in the
 // contract wrapper
 func TestCheckContractHashesFromLastGoGenerate(t *testing.T) {
 	versions, err := ReadVersionsDB()
