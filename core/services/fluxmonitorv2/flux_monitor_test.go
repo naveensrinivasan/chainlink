@@ -298,6 +298,7 @@ func TestFluxMonitor_PollIfEligible(t *testing.T) {
 			fm, tm := setup(t)
 
 			tm.keyStore.On("Accounts").Return([]accounts.Account{{Address: nodeAddr}}).Once()
+			tm.logBroadcaster.On("IsConnected").Return(tc.connected).Maybe()
 
 			// Setup Answers
 			answers := undeviatedAnswers
@@ -405,10 +406,6 @@ func TestFluxMonitor_PollIfEligible(t *testing.T) {
 					Return(nil)
 			}
 
-			if tc.connected {
-				fm.OnConnect()
-			}
-
 			oracles := []common.Address{nodeAddr, cltest.NewAddress()}
 			tm.fluxAggregator.On("GetOracles", nilOpts).Return(oracles, nil)
 			fm.SetOracleAddress()
@@ -431,6 +428,7 @@ func TestFluxMonitor_PollIfEligible_Creates_JobErr(t *testing.T) {
 	fm, tm := setup(t)
 
 	tm.keyStore.On("Accounts").Return([]accounts.Account{{Address: nodeAddr}}).Once()
+	tm.logBroadcaster.On("IsConnected").Return(true).Maybe()
 
 	tm.jobORM.
 		On("RecordError",
@@ -443,8 +441,6 @@ func TestFluxMonitor_PollIfEligible_Creates_JobErr(t *testing.T) {
 		On("OracleRoundState", nilOpts, nodeAddr, mock.Anything).
 		Return(roundState, errors.New("err")).
 		Once()
-
-	fm.OnConnect()
 
 	tm.fluxAggregator.On("GetOracles", nilOpts).Return(oracles, nil)
 	require.NoError(t, fm.SetOracleAddress())
@@ -497,7 +493,8 @@ func TestPollingDeviationChecker_BuffersLogs(t *testing.T) {
 	tm.fluxAggregator.On("GetOracles", nilOpts).Return(oracles, nil)
 	// tm.fluxAggregator.On("Address").Return(contractAddress, nil)
 
-	tm.logBroadcaster.On("Register", fm, mock.Anything).Return(true, func() {})
+	tm.logBroadcaster.On("Register", fm, mock.Anything).Return(func() {})
+	tm.logBroadcaster.On("IsConnected").Return(true).Maybe()
 
 	tm.orm.On("MostRecentFluxMonitorRoundID", contractAddress).Return(uint32(1), nil)
 	tm.orm.On("MostRecentFluxMonitorRoundID", contractAddress).Return(uint32(3), nil)
@@ -582,7 +579,6 @@ func TestPollingDeviationChecker_BuffersLogs(t *testing.T) {
 		Once().
 		Run(func(mock.Arguments) { close(chSafeToAssert) })
 
-	fm.OnConnect()
 	fm.Start()
 
 	var logBroadcasts []*logmocks.Broadcast
@@ -642,7 +638,8 @@ func TestFluxMonitor_TriggerIdleTimeThreshold(t *testing.T) {
 			answerBigInt := big.NewInt(fetchedAnswer * int64(math.Pow10(int(precision))))
 
 			tm.fluxAggregator.On("GetOracles", nilOpts).Return(oracles, nil)
-			tm.logBroadcaster.On("Register", mock.Anything, mock.Anything).Return(true, func() {})
+			tm.logBroadcaster.On("Register", mock.Anything, mock.Anything).Return(func() {})
+			tm.logBroadcaster.On("IsConnected").Return(true).Maybe()
 
 			idleDurationOccured := make(chan struct{}, 3)
 
@@ -658,7 +655,6 @@ func TestFluxMonitor_TriggerIdleTimeThreshold(t *testing.T) {
 				})
 			}
 
-			fm.OnConnect()
 			fm.Start()
 			require.Len(t, idleDurationOccured, 0, "no Job Runs created")
 
@@ -722,7 +718,8 @@ func TestFluxMonitor_RoundTimeoutCausesPoll_timesOutAtZero(t *testing.T) {
 
 	const fetchedAnswer = 100
 	answerBigInt := big.NewInt(fetchedAnswer * int64(math.Pow10(int(precision))))
-	tm.logBroadcaster.On("Register", mock.Anything, mock.Anything).Return(true, func() {})
+	tm.logBroadcaster.On("Register", mock.Anything, mock.Anything).Return(func() {})
+	tm.logBroadcaster.On("IsConnected").Return(true).Maybe()
 
 	tm.fluxAggregator.On("LatestRoundData", nilOpts).Return(makeRoundDataForRoundID(1), nil).Once()
 	roundState0 := flux_aggregator_wrapper.OracleRoundState{RoundId: 1, EligibleToSubmit: false, LatestSubmission: answerBigInt, StartedAt: now()}
@@ -742,7 +739,6 @@ func TestFluxMonitor_RoundTimeoutCausesPoll_timesOutAtZero(t *testing.T) {
 	fm.SetOracleAddress()
 	fm.ExportedRoundState()
 	fm.Start()
-	fm.OnConnect()
 
 	gomega.NewGomegaWithT(t).Eventually(ch).Should(gomega.BeClosed())
 
@@ -780,7 +776,8 @@ func TestFluxMonitor_UsesPreviousRoundStateOnStartup_RoundTimeout(t *testing.T) 
 
 			tm.keyStore.On("Accounts").Return([]accounts.Account{{Address: nodeAddr}}).Once()
 
-			tm.logBroadcaster.On("Register", mock.Anything, mock.Anything).Return(true, func() {})
+			tm.logBroadcaster.On("Register", mock.Anything, mock.Anything).Return(func() {})
+			tm.logBroadcaster.On("IsConnected").Return(true).Maybe()
 
 			tm.fluxAggregator.On("GetOracles", nilOpts).Return(oracles, nil)
 
@@ -802,7 +799,6 @@ func TestFluxMonitor_UsesPreviousRoundStateOnStartup_RoundTimeout(t *testing.T) 
 				Maybe()
 
 			fm.Start()
-			fm.OnConnect()
 
 			if test.expectedToSubmit {
 				gomega.NewGomegaWithT(t).Eventually(chRoundState).Should(gomega.BeClosed())
@@ -850,7 +846,8 @@ func TestFluxMonitor_UsesPreviousRoundStateOnStartup_IdleTimer(t *testing.T) {
 
 			tm.keyStore.On("Accounts").Return([]accounts.Account{{Address: nodeAddr}}).Once()
 
-			tm.logBroadcaster.On("Register", mock.Anything, mock.Anything).Return(true, func() {})
+			tm.logBroadcaster.On("Register", mock.Anything, mock.Anything).Return(func() {})
+			tm.logBroadcaster.On("IsConnected").Return(true).Maybe()
 
 			tm.fluxAggregator.On("GetOracles", nilOpts).Return(oracles, nil)
 			tm.fluxAggregator.On("LatestRoundData", nilOpts).Return(makeRoundDataForRoundID(1), nil).Once()
@@ -873,7 +870,6 @@ func TestFluxMonitor_UsesPreviousRoundStateOnStartup_IdleTimer(t *testing.T) {
 				Maybe()
 
 			fm.Start()
-			fm.OnConnect()
 
 			if tc.expectedToSubmit {
 				gomega.NewGomegaWithT(t).Eventually(chRoundState).Should(gomega.BeClosed())
@@ -910,7 +906,8 @@ func TestFluxMonitor_RoundTimeoutCausesPoll_timesOutNotZero(t *testing.T) {
 	chRoundState1 := make(chan struct{})
 	chRoundState2 := make(chan struct{})
 
-	tm.logBroadcaster.On("Register", mock.Anything, mock.Anything).Return(true, func() {})
+	tm.logBroadcaster.On("Register", mock.Anything, mock.Anything).Return(func() {})
+	tm.logBroadcaster.On("IsConnected").Return(true).Maybe()
 
 	tm.fluxAggregator.On("GetOracles", nilOpts).Return(oracles, nil)
 	tm.fluxAggregator.On("LatestRoundData", nilOpts).Return(makeRoundDataForRoundID(1), nil).Once()
@@ -944,7 +941,6 @@ func TestFluxMonitor_RoundTimeoutCausesPoll_timesOutNotZero(t *testing.T) {
 		Once()
 
 	fm.Start()
-	fm.OnConnect()
 
 	tm.logBroadcast.On("WasAlreadyConsumed").Return(false, nil)
 	tm.logBroadcast.On("DecodedLog").Return(&flux_aggregator_wrapper.FluxAggregatorNewRound{RoundId: big.NewInt(0), StartedAt: big.NewInt(time.Now().UTC().Unix())})
@@ -1051,6 +1047,7 @@ func TestFluxMonitor_DoesNotDoubleSubmit(t *testing.T) {
 		)
 
 		tm.keyStore.On("Accounts").Return([]accounts.Account{{Address: nodeAddr}}).Once()
+		tm.logBroadcaster.On("IsConnected").Return(true).Maybe()
 
 		// Mocks initiated by the New Round log
 		tm.orm.On("MostRecentFluxMonitorRoundID", contractAddress).Return(uint32(roundID), nil).Once()
@@ -1077,7 +1074,6 @@ func TestFluxMonitor_DoesNotDoubleSubmit(t *testing.T) {
 
 		tm.fluxAggregator.On("GetOracles", nilOpts).Return(oracles, nil)
 		fm.SetOracleAddress()
-		fm.OnConnect()
 
 		tm.fluxAggregator.On("LatestRoundData", nilOpts).Return(flux_aggregator_wrapper.LatestRoundData{
 			Answer:    big.NewInt(10),
@@ -1146,8 +1142,7 @@ func TestFluxMonitor_DoesNotDoubleSubmit(t *testing.T) {
 			answer  = 100
 		)
 		tm.keyStore.On("Accounts").Return([]accounts.Account{{Address: nodeAddr}}).Once()
-
-		fm.OnConnect()
+		tm.logBroadcaster.On("IsConnected").Return(true).Maybe()
 
 		// First, force the node to try to poll, which should result in a submission
 		tm.fluxAggregator.On("LatestRoundData", nilOpts).Return(flux_aggregator_wrapper.LatestRoundData{
