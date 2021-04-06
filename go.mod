@@ -11,7 +11,7 @@ require (
 	github.com/btcsuite/btcd v0.21.0-beta
 	github.com/coreos/go-semver v0.3.0
 	github.com/danielkov/gin-helmet v0.0.0-20171108135313-1387e224435e
-	github.com/ethereum/go-ethereum v1.10.0
+	github.com/ethereum/go-ethereum v1.10.1
 	github.com/fatih/color v1.10.0
 	github.com/fxamacker/cbor/v2 v2.2.0
 	github.com/gin-contrib/cors v1.3.1
