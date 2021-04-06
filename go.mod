@@ -37,7 +37,7 @@ require (
 	github.com/mitchellh/mapstructure v1.4.1
 	github.com/multiformats/go-multiaddr v0.3.1
 	github.com/olekukonko/tablewriter v0.0.5
-	github.com/onsi/gomega v1.10.5
+	github.com/onsi/gomega v1.11.0
 	github.com/pelletier/go-toml v1.8.1
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.9.0
