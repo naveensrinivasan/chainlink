@@ -37,7 +37,7 @@ require (
 	github.com/mitchellh/mapstructure v1.4.1
 	github.com/multiformats/go-multiaddr v0.3.1
 	github.com/olekukonko/tablewriter v0.0.5
-	github.com/onsi/gomega v1.10.5
+	github.com/onsi/gomega v1.12.0
 	github.com/pelletier/go-toml v1.8.1
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.9.0
@@ -61,8 +61,8 @@ require (
 	golang.org/x/crypto v0.0.0-20201221181555-eec23a3978ad
 	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9
 	golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1
-	golang.org/x/text v0.3.5
-	golang.org/x/tools v0.0.0-20201211185031-d93e913c1a58
+	golang.org/x/text v0.3.6
+	golang.org/x/tools v0.0.0-20201224043029-2b0845dc783e
 	gonum.org/v1/gonum v0.8.2
 	gopkg.in/guregu/null.v4 v4.0.0
 	gorm.io/driver/mysql v1.0.3 // indirect
