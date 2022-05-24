@@ -10,8 +10,9 @@ require (
 	github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869
 	github.com/btcsuite/btcd v0.21.0-beta
 	github.com/coreos/go-semver v0.3.0
+	github.com/cpuguy83/go-md2man/v2 v2.0.0 // indirect
 	github.com/danielkov/gin-helmet v0.0.0-20171108135313-1387e224435e
-	github.com/ethereum/go-ethereum v1.10.0
+	github.com/ethereum/go-ethereum v1.10.17
 	github.com/fatih/color v1.10.0
 	github.com/fxamacker/cbor/v2 v2.2.0
 	github.com/gin-contrib/cors v1.3.1
@@ -21,7 +22,7 @@ require (
 	github.com/gin-gonic/gin v1.6.0
 	github.com/go-gormigrate/gormigrate/v2 v2.0.0
 	github.com/gobuffalo/packr v1.30.1
-	github.com/google/uuid v1.1.5
+	github.com/google/uuid v1.2.0
 	github.com/gorilla/securecookie v1.1.1
 	github.com/gorilla/sessions v1.2.1
 	github.com/gorilla/websocket v1.4.2
@@ -45,6 +46,7 @@ require (
 	github.com/satori/go.uuid v1.2.0
 	github.com/shopspring/decimal v1.2.0
 	github.com/smartcontractkit/libocr v0.0.0-20210329163356-c910dd9a5eae
+	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/spf13/viper v1.7.1
 	github.com/stretchr/testify v1.7.0
 	github.com/tevino/abool v0.0.0-20170917061928-9b9efcf221b5
@@ -58,11 +60,11 @@ require (
 	go.uber.org/atomic v1.7.0
 	go.uber.org/multierr v1.6.0
 	go.uber.org/zap v1.16.0
-	golang.org/x/crypto v0.0.0-20201221181555-eec23a3978ad
-	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9
+	golang.org/x/crypto v0.0.0-20210322153248-0c34fe9e7dc2
+	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1
-	golang.org/x/text v0.3.5
-	golang.org/x/tools v0.0.0-20201211185031-d93e913c1a58
+	golang.org/x/text v0.3.7
+	golang.org/x/tools v0.1.0
 	gonum.org/v1/gonum v0.8.2
 	gopkg.in/guregu/null.v4 v4.0.0
 	gorm.io/driver/mysql v1.0.3 // indirect
