@@ -58,11 +58,11 @@ require (
 	go.uber.org/atomic v1.7.0
 	go.uber.org/multierr v1.6.0
 	go.uber.org/zap v1.16.0
-	golang.org/x/crypto v0.0.0-20201221181555-eec23a3978ad
-	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9
-	golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1
-	golang.org/x/text v0.3.5
-	golang.org/x/tools v0.0.0-20201211185031-d93e913c1a58
+	golang.org/x/crypto v0.0.0-20210921155107-089bfa567519
+	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
+	golang.org/x/term v0.0.0-20210927222741-03fcf44c2211
+	golang.org/x/text v0.3.8
+	golang.org/x/tools v0.1.12
 	gonum.org/v1/gonum v0.8.2
 	gopkg.in/guregu/null.v4 v4.0.0
 	gorm.io/driver/mysql v1.0.3 // indirect
